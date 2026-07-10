@@ -2,12 +2,17 @@
 extern crate alloc;
 use alloc::format;
 use alloc::string::ToString;
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Map, String, Symbol, Vec, vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN,
+    Env, Map, String, Symbol, Vec,
+};
 
 // Contract state keys
 const ADMIN: Symbol = symbol_short!("ADMIN");
 const BOUNTY_POOL: Symbol = symbol_short!("BOUNTY");
+#[allow(dead_code)]
 const VULNERABILITIES: Symbol = symbol_short!("VULNS");
+#[allow(dead_code)]
 const REPUTATION: Symbol = symbol_short!("REPUT");
 const ESCROW: Symbol = symbol_short!("ESCROW");
 const EMERGENCY_POOL: Symbol = symbol_short!("EMERG");
@@ -27,6 +32,7 @@ const ADMIN_ROLES: Symbol = symbol_short!("ADM_ROLE");
 const MULTI_SIG_PROPOSALS: Symbol = symbol_short!("MS_PROPS");
 const MULTI_SIG_COUNTER: Symbol = symbol_short!("MS_CNTR");
 const ROLE_PERMISSIONS: Symbol = symbol_short!("ROLE_PER");
+#[allow(dead_code)]
 const TIME_LOCKS: Symbol = symbol_short!("TIME_LOCK");
 
 // Role definitions
@@ -228,8 +234,13 @@ impl SecurityScannerContract {
     }
 
     // Role-based access control helper functions
+    #[allow(dead_code)]
     fn has_role(env: &Env, user: &Address, role: Role) -> bool {
-        let admin_roles: Map<Address, Vec<Role>> = env.storage().instance().get(&ADMIN_ROLES).unwrap_or(Map::new(env));
+        let admin_roles: Map<Address, Vec<Role>> = env
+            .storage()
+            .instance()
+            .get(&ADMIN_ROLES)
+            .unwrap_or(Map::new(env));
         if let Some(roles) = admin_roles.get(user.clone()) {
             roles.contains(&role)
         } else {
@@ -238,9 +249,17 @@ impl SecurityScannerContract {
     }
 
     fn has_permission(env: &Env, user: &Address, permission: Permission) -> bool {
-        let role_permissions: Map<Role, Vec<Permission>> = env.storage().instance().get(&ROLE_PERMISSIONS).unwrap_or(Map::new(env));
-        let admin_roles: Map<Address, Vec<Role>> = env.storage().instance().get(&ADMIN_ROLES).unwrap_or(Map::new(env));
-        
+        let role_permissions: Map<Role, Vec<Permission>> = env
+            .storage()
+            .instance()
+            .get(&ROLE_PERMISSIONS)
+            .unwrap_or(Map::new(env));
+        let admin_roles: Map<Address, Vec<Role>> = env
+            .storage()
+            .instance()
+            .get(&ADMIN_ROLES)
+            .unwrap_or(Map::new(env));
+
         if let Some(roles) = admin_roles.get(user.clone()) {
             for role in roles {
                 if let Some(permissions) = role_permissions.get(role) {
@@ -253,6 +272,7 @@ impl SecurityScannerContract {
         false
     }
 
+    #[allow(dead_code)]
     fn require_role(env: &Env, user: &Address, role: Role) -> Result<(), ContractError> {
         if Self::has_role(env, user, role) {
             Ok(())
@@ -261,7 +281,11 @@ impl SecurityScannerContract {
         }
     }
 
-    fn require_permission(env: &Env, user: &Address, permission: Permission) -> Result<(), ContractError> {
+    fn require_permission(
+        env: &Env,
+        user: &Address,
+        permission: Permission,
+    ) -> Result<(), ContractError> {
         if Self::has_permission(env, user, permission) {
             Ok(())
         } else {
@@ -271,38 +295,43 @@ impl SecurityScannerContract {
 
     fn initialize_role_permissions(env: &Env) {
         let mut role_permissions: Map<Role, Vec<Permission>> = Map::new(env);
-        
+
         // SuperAdmin has all permissions
-        role_permissions.set(Role::SuperAdmin, vec![
-            &env,
-            Permission::VerifyVulnerability,
-            Permission::VerifyEmergency,
-            Permission::ManageEscrow,
-            Permission::ManageTreasury,
-            Permission::ManageRoles,
-            Permission::EmergencyActions,
-        ]);
-        
+        role_permissions.set(
+            Role::SuperAdmin,
+            vec![
+                &env,
+                Permission::VerifyVulnerability,
+                Permission::VerifyEmergency,
+                Permission::ManageEscrow,
+                Permission::ManageTreasury,
+                Permission::ManageRoles,
+                Permission::EmergencyActions,
+            ],
+        );
+
         // Verifier can verify vulnerabilities and emergencies
-        role_permissions.set(Role::Verifier, vec![
-            &env,
-            Permission::VerifyVulnerability,
-            Permission::VerifyEmergency,
-        ]);
-        
+        role_permissions.set(
+            Role::Verifier,
+            vec![
+                &env,
+                Permission::VerifyVulnerability,
+                Permission::VerifyEmergency,
+            ],
+        );
+
         // EscrowManager can manage escrows
-        role_permissions.set(Role::EscrowManager, vec![
-            &env,
-            Permission::ManageEscrow,
-        ]);
-        
+        role_permissions.set(Role::EscrowManager, vec![&env, Permission::ManageEscrow]);
+
         // TreasuryManager can manage funding pools
-        role_permissions.set(Role::TreasuryManager, vec![
-            &env,
-            Permission::ManageTreasury,
-        ]);
-        
-        env.storage().instance().set(&ROLE_PERMISSIONS, &role_permissions);
+        role_permissions.set(
+            Role::TreasuryManager,
+            vec![&env, Permission::ManageTreasury],
+        );
+
+        env.storage()
+            .instance()
+            .set(&ROLE_PERMISSIONS, &role_permissions);
     }
 
     fn create_multi_sig_proposal(
@@ -325,46 +354,70 @@ impl SecurityScannerContract {
             executed: false,
             execution_delay,
         };
-        
-        let mut proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(env));
+
+        let mut proposals: Map<u64, MultiSigProposal> = env
+            .storage()
+            .instance()
+            .get(&MULTI_SIG_PROPOSALS)
+            .unwrap_or(Map::new(env));
         proposals.set(proposal_id, proposal);
-        env.storage().instance().set(&MULTI_SIG_PROPOSALS, &proposals);
-        
+        env.storage()
+            .instance()
+            .set(&MULTI_SIG_PROPOSALS, &proposals);
+
         Ok(proposal_id)
     }
 
-    fn approve_proposal(env: &Env, proposal_id: u64, approver: &Address) -> Result<(), ContractError> {
-        let mut proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(env));
-        let mut proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
-        
+    fn approve_proposal(
+        env: &Env,
+        proposal_id: u64,
+        approver: &Address,
+    ) -> Result<(), ContractError> {
+        let mut proposals: Map<u64, MultiSigProposal> = env
+            .storage()
+            .instance()
+            .get(&MULTI_SIG_PROPOSALS)
+            .unwrap_or(Map::new(env));
+        let mut proposal: MultiSigProposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
+
         if proposal.executed {
             return Err(ContractError::ProposalAlreadyExecuted);
         }
-        
+
         if proposal.approvals.contains_key(approver.clone()) {
             return Err(ContractError::AlreadyApproved);
         }
-        
+
         proposal.approvals.set(approver.clone(), true);
         proposals.set(proposal_id, proposal);
-        env.storage().instance().set(&MULTI_SIG_PROPOSALS, &proposals);
-        
+        env.storage()
+            .instance()
+            .set(&MULTI_SIG_PROPOSALS, &proposals);
+
         Ok(())
     }
 
     fn can_execute_proposal(env: &Env, proposal_id: u64) -> Result<bool, ContractError> {
-        let proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(env));
-        let proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
-        
+        let proposals: Map<u64, MultiSigProposal> = env
+            .storage()
+            .instance()
+            .get(&MULTI_SIG_PROPOSALS)
+            .unwrap_or(Map::new(env));
+        let proposal: MultiSigProposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
+
         if proposal.executed {
             return Ok(false);
         }
-        
+
         let current_time = env.ledger().timestamp();
         if current_time < proposal.created_at + proposal.execution_delay {
             return Ok(false);
         }
-        
+
         let approval_count = proposal.approvals.len() as u64;
         Ok(approval_count >= proposal.required_approvals)
     }
@@ -378,41 +431,57 @@ impl SecurityScannerContract {
         if amount <= 0 {
             return Err(ContractError::ExternalCallFailed);
         }
+        #[allow(deprecated)]
         env.events().publish(
-                    (symbol_short!("payout"),),
+            (symbol_short!("payout"),),
             (escrow_id, recipient.clone(), amount),
         );
         Ok(())
     }
-    
+
     /// Initialize the contract with admin address
     pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
         if env.storage().instance().has(&ADMIN) {
             return Err(ContractError::Unauthorized);
         }
-        
+
         Self::require_non_default_address(&admin)?;
         env.storage().instance().set(&ADMIN, &admin);
         env.storage().instance().set(&BOUNTY_POOL, &0i128);
         env.storage().instance().set(&EMERGENCY_POOL, &0i128);
-        env.storage().instance().set(&REPORTS, &Map::<u64, VulnerabilityReport>::new(&env));
-        env.storage().instance().set(&ESCROWS, &Map::<u64, EscrowEntry>::new(&env));
-        env.storage().instance().set(&EMERGENCY_ALERTS, &Map::<u64, EmergencyAlert>::new(&env));
-        env.storage().instance().set(&REPORT_NONCES, &Map::<u64, BytesN<32>>::new(&env));
-        env.storage().instance().set(&ESCROW_NONCES, &Map::<u64, BytesN<32>>::new(&env));
-        env.storage().instance().set(&ALERT_NONCES, &Map::<u64, BytesN<32>>::new(&env));
-        
+        env.storage()
+            .instance()
+            .set(&REPORTS, &Map::<u64, VulnerabilityReport>::new(&env));
+        env.storage()
+            .instance()
+            .set(&ESCROWS, &Map::<u64, EscrowEntry>::new(&env));
+        env.storage()
+            .instance()
+            .set(&EMERGENCY_ALERTS, &Map::<u64, EmergencyAlert>::new(&env));
+        env.storage()
+            .instance()
+            .set(&REPORT_NONCES, &Map::<u64, BytesN<32>>::new(&env));
+        env.storage()
+            .instance()
+            .set(&ESCROW_NONCES, &Map::<u64, BytesN<32>>::new(&env));
+        env.storage()
+            .instance()
+            .set(&ALERT_NONCES, &Map::<u64, BytesN<32>>::new(&env));
+
         // Initialize role-based access control
         Self::initialize_role_permissions(&env);
-        
+
         // Set initial admin as SuperAdmin
         let mut admin_roles: Map<Address, Vec<Role>> = Map::new(&env);
         admin_roles.set(admin.clone(), vec![&env, Role::SuperAdmin]);
         env.storage().instance().set(&ADMIN_ROLES, &admin_roles);
-        
+
         // Initialize multi-signature proposals map
-        env.storage().instance().set(&MULTI_SIG_PROPOSALS, &Map::<u64, MultiSigProposal>::new(&env));
-        
+        env.storage().instance().set(
+            &MULTI_SIG_PROPOSALS,
+            &Map::<u64, MultiSigProposal>::new(&env),
+        );
+
         Ok(())
     }
 
@@ -433,7 +502,7 @@ impl SecurityScannerContract {
         Self::require_valid_text(&severity)?;
         Self::require_valid_text(&description)?;
         Self::require_valid_text(&location)?;
-        
+
         // Create vulnerability report
         let report = VulnerabilityReport {
             reporter: reporter.clone(),
@@ -449,10 +518,18 @@ impl SecurityScannerContract {
 
         let report_id = Self::next_counter(&env, REPORT_COUNTER)?;
         let report_nonce = Self::generate_nonce(&env, &reporter, report_id);
-        let mut reports: Map<u64, VulnerabilityReport> = env.storage().instance().get(&REPORTS).unwrap_or(Map::new(&env));
+        let mut reports: Map<u64, VulnerabilityReport> = env
+            .storage()
+            .instance()
+            .get(&REPORTS)
+            .unwrap_or(Map::new(&env));
         reports.set(report_id, report);
         env.storage().instance().set(&REPORTS, &reports);
-        let mut report_nonces: Map<u64, BytesN<32>> = env.storage().instance().get(&REPORT_NONCES).unwrap_or(Map::new(&env));
+        let mut report_nonces: Map<u64, BytesN<32>> = env
+            .storage()
+            .instance()
+            .get(&REPORT_NONCES)
+            .unwrap_or(Map::new(&env));
         report_nonces.set(report_id, report_nonce);
         env.storage().instance().set(&REPORT_NONCES, &report_nonces);
 
@@ -472,25 +549,28 @@ impl SecurityScannerContract {
         admin.require_auth();
         Self::require_non_default_address(&admin)?;
         Self::require_positive_amount(bounty_amount)?;
-        
+
         // Check role-based permissions
         Self::require_permission(&env, &admin, Permission::VerifyVulnerability)?;
-        
+
         // For high bounty amounts (> 1M tokens), require multi-signature
         if bounty_amount > 1_000_000i128 {
             return Err(ContractError::MultiSigRequired);
         }
 
         // Get vulnerability report
-        let mut reports: Map<u64, VulnerabilityReport> = env.storage().instance().get(&REPORTS).unwrap_or(Map::new(&env));
-        let mut report: VulnerabilityReport = reports
-            .get(report_id)
-            .ok_or(ContractError::NotFound)?;
+        let mut reports: Map<u64, VulnerabilityReport> = env
+            .storage()
+            .instance()
+            .get(&REPORTS)
+            .unwrap_or(Map::new(&env));
+        let mut report: VulnerabilityReport =
+            reports.get(report_id).ok_or(ContractError::NotFound)?;
 
         // Update status and bounty
         report.status = String::from_str(&env, "verified");
         report.bounty_amount = bounty_amount;
-        
+
         // Store updated report
         reports.set(report_id, report.clone());
         env.storage().instance().set(&REPORTS, &reports);
@@ -512,13 +592,13 @@ impl SecurityScannerContract {
     ) -> Result<u64, ContractError> {
         proposer.require_auth();
         Self::require_permission(&env, &proposer, Permission::VerifyVulnerability)?;
-        
+
         let parameters = vec![
             &env,
             String::from_str(&env, &report_id.to_string()),
             String::from_str(&env, &bounty_amount.to_string()),
         ];
-        
+
         Self::create_multi_sig_proposal(
             &env,
             &proposer,
@@ -537,7 +617,7 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         approver.require_auth();
         Self::require_permission(&env, &approver, Permission::VerifyVulnerability)?;
-        
+
         Self::approve_proposal(&env, proposal_id, &approver)
     }
 
@@ -549,42 +629,67 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         executor.require_auth();
         Self::require_permission(&env, &executor, Permission::VerifyVulnerability)?;
-        
+
         if !Self::can_execute_proposal(&env, proposal_id)? {
             return Err(ContractError::ProposalNotFound);
         }
-        
-        let proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
-        let proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
-        
-        let report_id: u64 = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap()).parse().unwrap();
-        let bounty_amount: i128 = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap()).parse().unwrap();
-        
+
+        let proposals: Map<u64, MultiSigProposal> = env
+            .storage()
+            .instance()
+            .get(&MULTI_SIG_PROPOSALS)
+            .unwrap_or(Map::new(&env));
+        let proposal: MultiSigProposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
+
+        let report_id: u64 = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap())
+            .parse()
+            .unwrap();
+        let bounty_amount: i128 = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap())
+            .parse()
+            .unwrap();
+
         // Execute the verification
         Self::verify_vulnerability(env.clone(), executor, report_id, bounty_amount)?;
-        
+
         // Mark proposal as executed
-        let mut proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
-        let mut proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
+        let mut proposals: Map<u64, MultiSigProposal> = env
+            .storage()
+            .instance()
+            .get(&MULTI_SIG_PROPOSALS)
+            .unwrap_or(Map::new(&env));
+        let mut proposal: MultiSigProposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
         proposal.executed = true;
         proposals.set(proposal_id, proposal);
-        env.storage().instance().set(&MULTI_SIG_PROPOSALS, &proposals);
-        
+        env.storage()
+            .instance()
+            .set(&MULTI_SIG_PROPOSALS, &proposals);
+
         Ok(())
     }
 
     /// Get vulnerability report
-    pub fn get_vulnerability(env: Env, report_id: u64) -> Result<VulnerabilityReport, ContractError> {
-        let reports: Map<u64, VulnerabilityReport> = env.storage().instance().get(&REPORTS).unwrap_or(Map::new(&env));
-        reports
-            .get(report_id)
-            .ok_or(ContractError::NotFound)
+    pub fn get_vulnerability(
+        env: Env,
+        report_id: u64,
+    ) -> Result<VulnerabilityReport, ContractError> {
+        let reports: Map<u64, VulnerabilityReport> = env
+            .storage()
+            .instance()
+            .get(&REPORTS)
+            .unwrap_or(Map::new(&env));
+        reports.get(report_id).ok_or(ContractError::NotFound)
     }
 
     /// Get researcher reputation
     pub fn get_reputation(env: Env, researcher: Address) -> Result<Reputation, ContractError> {
+        #[allow(deprecated)]
         let rep_key = Symbol::short(&format!("REP_{:?}", researcher));
-        env.storage().instance()
+        env.storage()
+            .instance()
             .get(&rep_key)
             .ok_or(ContractError::NotFound)
     }
@@ -594,7 +699,7 @@ impl SecurityScannerContract {
         funder.require_auth();
         Self::require_non_default_address(&funder)?;
         Self::require_positive_amount(amount)?;
-        
+
         let mut current_pool: i128 = env.storage().instance().get(&BOUNTY_POOL).unwrap_or(0i128);
         current_pool = Self::checked_add_i128(current_pool, amount)?;
         env.storage().instance().set(&BOUNTY_POOL, &current_pool);
@@ -614,21 +719,26 @@ impl SecurityScannerContract {
         successful_reports: u64,
         earnings: i128,
     ) -> Result<(), ContractError> {
+        #[allow(deprecated)]
         let rep_key = Symbol::short(&format!("REP_{:?}", researcher));
-        
-        let mut reputation: Reputation = env.storage().instance()
-            .get(&rep_key)
-            .unwrap_or(Reputation {
-                researcher: researcher.clone(),
-                score: 0,
-                successful_reports: 0,
-                total_earnings: 0,
-            });
 
-        reputation.successful_reports = Self::checked_add_u64(reputation.successful_reports, successful_reports)?;
+        let mut reputation: Reputation =
+            env.storage()
+                .instance()
+                .get(&rep_key)
+                .unwrap_or(Reputation {
+                    researcher: researcher.clone(),
+                    score: 0,
+                    successful_reports: 0,
+                    total_earnings: 0,
+                });
+
+        reputation.successful_reports =
+            Self::checked_add_u64(reputation.successful_reports, successful_reports)?;
         reputation.total_earnings = Self::checked_add_i128(reputation.total_earnings, earnings)?;
         let score_from_reports = Self::checked_mul_u64(reputation.successful_reports, 10)?;
-        let score_from_earnings = Self::checked_non_negative_i128_to_u64(reputation.total_earnings / 1_000_000)?;
+        let score_from_earnings =
+            Self::checked_non_negative_i128_to_u64(reputation.total_earnings / 1_000_000)?;
         reputation.score = Self::checked_add_u64(score_from_reports, score_from_earnings)?;
 
         env.storage().instance().set(&rep_key, &reputation);
@@ -655,7 +765,7 @@ impl SecurityScannerContract {
         let current_time = env.ledger().timestamp();
         let lock_until = Self::checked_add_u64(current_time, lock_duration)?;
         let escrow_nonce = Self::generate_nonce(&env, &beneficiary, escrow_id);
-        
+
         let escrow = EscrowEntry {
             id: escrow_id,
             depositor: depositor.clone(),
@@ -669,10 +779,18 @@ impl SecurityScannerContract {
             release_signature: None,
         };
 
-        let mut escrows: Map<u64, EscrowEntry> = env.storage().instance().get(&ESCROWS).unwrap_or(Map::new(&env));
+        let mut escrows: Map<u64, EscrowEntry> = env
+            .storage()
+            .instance()
+            .get(&ESCROWS)
+            .unwrap_or(Map::new(&env));
         escrows.set(escrow_id, escrow);
         env.storage().instance().set(&ESCROWS, &escrows);
-        let mut escrow_nonces: Map<u64, BytesN<32>> = env.storage().instance().get(&ESCROW_NONCES).unwrap_or(Map::new(&env));
+        let mut escrow_nonces: Map<u64, BytesN<32>> = env
+            .storage()
+            .instance()
+            .get(&ESCROW_NONCES)
+            .unwrap_or(Map::new(&env));
         escrow_nonces.set(escrow_id, escrow_nonce);
         env.storage().instance().set(&ESCROW_NONCES, &escrow_nonces);
 
@@ -693,10 +811,12 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         depositor.require_auth();
 
-        let mut escrows: Map<u64, EscrowEntry> = env.storage().instance().get(&ESCROWS).unwrap_or(Map::new(&env));
-        let mut escrow: EscrowEntry = escrows
-            .get(escrow_id)
-            .ok_or(ContractError::NotFound)?;
+        let mut escrows: Map<u64, EscrowEntry> = env
+            .storage()
+            .instance()
+            .get(&ESCROWS)
+            .unwrap_or(Map::new(&env));
+        let mut escrow: EscrowEntry = escrows.get(escrow_id).ok_or(ContractError::NotFound)?;
 
         // Verify depositor authorization
         if escrow.depositor != depositor {
@@ -709,7 +829,7 @@ impl SecurityScannerContract {
         }
 
         let current_time = env.ledger().timestamp();
-        
+
         // Allow release if conditions are met or lock period has expired
         if !escrow.conditions_met && current_time < escrow.lock_until {
             return Err(ContractError::EscrowLocked);
@@ -742,10 +862,12 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         depositor.require_auth();
 
-        let mut escrows: Map<u64, EscrowEntry> = env.storage().instance().get(&ESCROWS).unwrap_or(Map::new(&env));
-        let mut escrow: EscrowEntry = escrows
-            .get(escrow_id)
-            .ok_or(ContractError::NotFound)?;
+        let mut escrows: Map<u64, EscrowEntry> = env
+            .storage()
+            .instance()
+            .get(&ESCROWS)
+            .unwrap_or(Map::new(&env));
+        let mut escrow: EscrowEntry = escrows.get(escrow_id).ok_or(ContractError::NotFound)?;
 
         // Verify depositor authorization
         if escrow.depositor != depositor {
@@ -758,7 +880,7 @@ impl SecurityScannerContract {
         }
 
         let current_time = env.ledger().timestamp();
-        
+
         // Only allow refund if lock period has expired and conditions not met
         if current_time < escrow.lock_until || escrow.conditions_met {
             return Err(ContractError::EscrowLocked);
@@ -790,14 +912,16 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         admin.require_auth();
         Self::require_non_default_address(&admin)?;
-        
+
         // Check role-based permissions
         Self::require_permission(&env, &admin, Permission::ManageEscrow)?;
 
-        let mut escrows: Map<u64, EscrowEntry> = env.storage().instance().get(&ESCROWS).unwrap_or(Map::new(&env));
-        let mut escrow: EscrowEntry = escrows
-            .get(escrow_id)
-            .ok_or(ContractError::NotFound)?;
+        let mut escrows: Map<u64, EscrowEntry> = env
+            .storage()
+            .instance()
+            .get(&ESCROWS)
+            .unwrap_or(Map::new(&env));
+        let mut escrow: EscrowEntry = escrows.get(escrow_id).ok_or(ContractError::NotFound)?;
 
         escrow.conditions_met = true;
         escrows.set(escrow_id, escrow);
@@ -822,7 +946,9 @@ impl SecurityScannerContract {
         Self::require_valid_text(&description)?;
         Self::require_valid_text(&location)?;
         // Verify severity is critical or emergency
-        if severity != String::from_str(&env, "critical") && severity != String::from_str(&env, "emergency") {
+        if severity != String::from_str(&env, "critical")
+            && severity != String::from_str(&env, "emergency")
+        {
             return Err(ContractError::InvalidInput);
         }
 
@@ -850,10 +976,18 @@ impl SecurityScannerContract {
             verified_by: None,
         };
 
-        let mut alerts: Map<u64, EmergencyAlert> = env.storage().instance().get(&EMERGENCY_ALERTS).unwrap_or(Map::new(&env));
+        let mut alerts: Map<u64, EmergencyAlert> = env
+            .storage()
+            .instance()
+            .get(&EMERGENCY_ALERTS)
+            .unwrap_or(Map::new(&env));
         alerts.set(alert_id, alert);
         env.storage().instance().set(&EMERGENCY_ALERTS, &alerts);
-        let mut alert_nonces: Map<u64, BytesN<32>> = env.storage().instance().get(&ALERT_NONCES).unwrap_or(Map::new(&env));
+        let mut alert_nonces: Map<u64, BytesN<32>> = env
+            .storage()
+            .instance()
+            .get(&ALERT_NONCES)
+            .unwrap_or(Map::new(&env));
         alert_nonces.set(alert_id, alert_nonce);
         env.storage().instance().set(&ALERT_NONCES, &alert_nonces);
 
@@ -869,12 +1003,12 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         admin.require_auth();
         Self::require_non_default_address(&admin)?;
-        
+
         // Check role-based permissions
         Self::require_permission(&env, &admin, Permission::VerifyEmergency)?;
-        
+
         // Emergency verifications always require multi-signature for security
-        return Err(ContractError::MultiSigRequired);
+        Err(ContractError::MultiSigRequired)
     }
 
     /// Create multi-signature proposal for emergency vulnerability verification
@@ -888,17 +1022,25 @@ impl SecurityScannerContract {
     ) -> Result<u64, ContractError> {
         proposer.require_auth();
         Self::require_permission(&env, &proposer, Permission::VerifyEmergency)?;
-        
+
         let parameters = vec![
             &env,
             String::from_str(&env, &alert_id.to_string()),
             String::from_str(&env, &verified.to_string()),
         ];
-        
+
         // Emergency verifications have shorter delay but higher approval requirements
-        let emergency_delay = if execution_delay < 3600 { 3600 } else { execution_delay }; // Minimum 1 hour
-        let emergency_approvals = if required_approvals < 3 { 3 } else { required_approvals }; // Minimum 3 approvals
-        
+        let emergency_delay = if execution_delay < 3600 {
+            3600
+        } else {
+            execution_delay
+        }; // Minimum 1 hour
+        let emergency_approvals = if required_approvals < 3 {
+            3
+        } else {
+            required_approvals
+        }; // Minimum 3 approvals
+
         Self::create_multi_sig_proposal(
             &env,
             &proposer,
@@ -917,7 +1059,7 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         approver.require_auth();
         Self::require_permission(&env, &approver, Permission::VerifyEmergency)?;
-        
+
         Self::approve_proposal(&env, proposal_id, &approver)
     }
 
@@ -929,27 +1071,45 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         executor.require_auth();
         Self::require_permission(&env, &executor, Permission::VerifyEmergency)?;
-        
+
         if !Self::can_execute_proposal(&env, proposal_id)? {
             return Err(ContractError::ProposalNotFound);
         }
-        
-        let proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
-        let proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
-        
-        let alert_id: u64 = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap()).parse().unwrap();
-        let verified: bool = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap()).parse().unwrap();
-        
+
+        let proposals: Map<u64, MultiSigProposal> = env
+            .storage()
+            .instance()
+            .get(&MULTI_SIG_PROPOSALS)
+            .unwrap_or(Map::new(&env));
+        let proposal: MultiSigProposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
+
+        let alert_id: u64 = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap())
+            .parse()
+            .unwrap();
+        let verified: bool = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap())
+            .parse()
+            .unwrap();
+
         // Execute the emergency verification
         Self::execute_emergency_verification_internal(env.clone(), executor, alert_id, verified)?;
-        
+
         // Mark proposal as executed
-        let mut proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
-        let mut proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
+        let mut proposals: Map<u64, MultiSigProposal> = env
+            .storage()
+            .instance()
+            .get(&MULTI_SIG_PROPOSALS)
+            .unwrap_or(Map::new(&env));
+        let mut proposal: MultiSigProposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
         proposal.executed = true;
         proposals.set(proposal_id, proposal);
-        env.storage().instance().set(&MULTI_SIG_PROPOSALS, &proposals);
-        
+        env.storage()
+            .instance()
+            .set(&MULTI_SIG_PROPOSALS, &proposals);
+
         Ok(())
     }
 
@@ -960,10 +1120,12 @@ impl SecurityScannerContract {
         alert_id: u64,
         verified: bool,
     ) -> Result<(), ContractError> {
-        let mut alerts: Map<u64, EmergencyAlert> = env.storage().instance().get(&EMERGENCY_ALERTS).unwrap_or(Map::new(&env));
-        let mut alert: EmergencyAlert = alerts
-            .get(alert_id)
-            .ok_or(ContractError::NotFound)?;
+        let mut alerts: Map<u64, EmergencyAlert> = env
+            .storage()
+            .instance()
+            .get(&EMERGENCY_ALERTS)
+            .unwrap_or(Map::new(&env));
+        let mut alert: EmergencyAlert = alerts.get(alert_id).ok_or(ContractError::NotFound)?;
 
         if verified {
             alert.status = String::from_str(&env, "verified");
@@ -984,7 +1146,12 @@ impl SecurityScannerContract {
             Self::release_escrow(env.clone(), escrow_id, admin, None)?;
 
             // Update reputation
-            Self::update_reputation(env.clone(), alert.reporter.clone(), 1, alert.emergency_reward)?;
+            Self::update_reputation(
+                env.clone(),
+                alert.reporter.clone(),
+                1,
+                alert.emergency_reward,
+            )?;
         } else {
             alert.status = String::from_str(&env, "false_positive");
         }
@@ -997,18 +1164,22 @@ impl SecurityScannerContract {
 
     /// Get escrow details
     pub fn get_escrow(env: Env, escrow_id: u64) -> Result<EscrowEntry, ContractError> {
-        let escrows: Map<u64, EscrowEntry> = env.storage().instance().get(&ESCROWS).unwrap_or(Map::new(&env));
-        escrows
-            .get(escrow_id)
-            .ok_or(ContractError::NotFound)
+        let escrows: Map<u64, EscrowEntry> = env
+            .storage()
+            .instance()
+            .get(&ESCROWS)
+            .unwrap_or(Map::new(&env));
+        escrows.get(escrow_id).ok_or(ContractError::NotFound)
     }
 
     /// Get emergency alert details
     pub fn get_emergency_alert(env: Env, alert_id: u64) -> Result<EmergencyAlert, ContractError> {
-        let alerts: Map<u64, EmergencyAlert> = env.storage().instance().get(&EMERGENCY_ALERTS).unwrap_or(Map::new(&env));
-        alerts
-            .get(alert_id)
-            .ok_or(ContractError::NotFound)
+        let alerts: Map<u64, EmergencyAlert> = env
+            .storage()
+            .instance()
+            .get(&EMERGENCY_ALERTS)
+            .unwrap_or(Map::new(&env));
+        alerts.get(alert_id).ok_or(ContractError::NotFound)
     }
 
     /// Get escrow pool balance
@@ -1018,19 +1189,30 @@ impl SecurityScannerContract {
 
     /// Get emergency pool balance
     pub fn get_emergency_pool_balance(env: Env) -> i128 {
-        env.storage().instance().get(&EMERGENCY_POOL).unwrap_or(0i128)
+        env.storage()
+            .instance()
+            .get(&EMERGENCY_POOL)
+            .unwrap_or(0i128)
     }
 
     /// Fund emergency pool (requires TreasuryManager role)
-    pub fn fund_emergency_pool(env: Env, funder: Address, amount: i128) -> Result<(), ContractError> {
+    pub fn fund_emergency_pool(
+        env: Env,
+        funder: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
         funder.require_auth();
         Self::require_non_default_address(&funder)?;
         Self::require_positive_amount(amount)?;
-        
+
         // Check role-based permissions
         Self::require_permission(&env, &funder, Permission::ManageTreasury)?;
-        
-        let mut current_pool: i128 = env.storage().instance().get(&EMERGENCY_POOL).unwrap_or(0i128);
+
+        let mut current_pool: i128 = env
+            .storage()
+            .instance()
+            .get(&EMERGENCY_POOL)
+            .unwrap_or(0i128);
         current_pool = Self::checked_add_i128(current_pool, amount)?;
         env.storage().instance().set(&EMERGENCY_POOL, &current_pool);
 
@@ -1038,7 +1220,7 @@ impl SecurityScannerContract {
     }
 
     // Role management functions (require SuperAdmin role)
-    
+
     /// Grant a role to an address (requires SuperAdmin role and multi-sig)
     pub fn grant_role(
         _env: Env,
@@ -1049,9 +1231,9 @@ impl SecurityScannerContract {
         super_admin.require_auth();
         Self::require_non_default_address(&super_admin)?;
         Self::require_non_default_address(&user)?;
-        
+
         // Role management always requires multi-signature
-        return Err(ContractError::MultiSigRequired);
+        Err(ContractError::MultiSigRequired)
     }
 
     /// Create multi-signature proposal for role grant
@@ -1065,24 +1247,32 @@ impl SecurityScannerContract {
     ) -> Result<u64, ContractError> {
         proposer.require_auth();
         Self::require_permission(&env, &proposer, Permission::ManageRoles)?;
-        
+
         let role_str = match role {
             Role::SuperAdmin => "SuperAdmin",
             Role::Verifier => "Verifier",
             Role::EscrowManager => "EscrowManager",
             Role::TreasuryManager => "TreasuryManager",
         };
-        
+
         let parameters = vec![
             &env,
             String::from_str(&env, &format!("{:?}", user)),
             String::from_str(&env, role_str),
         ];
-        
+
         // Role management has higher security requirements
-        let role_delay = if execution_delay < 86400 { 86400 } else { execution_delay }; // Minimum 24 hours
-        let role_approvals = if required_approvals < 2 { 2 } else { required_approvals }; // Minimum 2 approvals
-        
+        let role_delay = if execution_delay < 86400 {
+            86400
+        } else {
+            execution_delay
+        }; // Minimum 24 hours
+        let role_approvals = if required_approvals < 2 {
+            2
+        } else {
+            required_approvals
+        }; // Minimum 2 approvals
+
         Self::create_multi_sig_proposal(
             &env,
             &proposer,
@@ -1101,7 +1291,7 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         approver.require_auth();
         Self::require_permission(&env, &approver, Permission::ManageRoles)?;
-        
+
         Self::approve_proposal(&env, proposal_id, &approver)
     }
 
@@ -1113,17 +1303,23 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         executor.require_auth();
         Self::require_permission(&env, &executor, Permission::ManageRoles)?;
-        
+
         if !Self::can_execute_proposal(&env, proposal_id)? {
             return Err(ContractError::ProposalNotFound);
         }
-        
-        let proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
-        let proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
-        
+
+        let proposals: Map<u64, MultiSigProposal> = env
+            .storage()
+            .instance()
+            .get(&MULTI_SIG_PROPOSALS)
+            .unwrap_or(Map::new(&env));
+        let proposal: MultiSigProposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
+
         let user_addr_s = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap());
         let role_s = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap());
-        
+
         // Parse address and role (simplified for this example)
         let user_address = Address::from_string(&String::from_str(&env, &user_addr_s));
         let role = match role_s.as_str() {
@@ -1133,17 +1329,25 @@ impl SecurityScannerContract {
             "TreasuryManager" => Role::TreasuryManager,
             _ => return Err(ContractError::InvalidRole),
         };
-        
+
         // Execute the role grant
         Self::execute_role_grant_internal(env.clone(), user_address, role)?;
-        
+
         // Mark proposal as executed
-        let mut proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
-        let mut proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
+        let mut proposals: Map<u64, MultiSigProposal> = env
+            .storage()
+            .instance()
+            .get(&MULTI_SIG_PROPOSALS)
+            .unwrap_or(Map::new(&env));
+        let mut proposal: MultiSigProposal = proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)?;
         proposal.executed = true;
         proposals.set(proposal_id, proposal);
-        env.storage().instance().set(&MULTI_SIG_PROPOSALS, &proposals);
-        
+        env.storage()
+            .instance()
+            .set(&MULTI_SIG_PROPOSALS, &proposals);
+
         Ok(())
     }
 
@@ -1153,16 +1357,20 @@ impl SecurityScannerContract {
         user: Address,
         role: Role,
     ) -> Result<(), ContractError> {
-        let mut admin_roles: Map<Address, Vec<Role>> = env.storage().instance().get(&ADMIN_ROLES).unwrap_or(Map::new(&env));
-        
+        let mut admin_roles: Map<Address, Vec<Role>> = env
+            .storage()
+            .instance()
+            .get(&ADMIN_ROLES)
+            .unwrap_or(Map::new(&env));
+
         let mut user_roles = admin_roles.get(user.clone()).unwrap_or(Vec::new(&env));
         if !user_roles.contains(&role) {
             user_roles.push_back(role);
         }
-        
+
         admin_roles.set(user, user_roles);
         env.storage().instance().set(&ADMIN_ROLES, &admin_roles);
-        
+
         Ok(())
     }
 
@@ -1176,21 +1384,31 @@ impl SecurityScannerContract {
         super_admin.require_auth();
         Self::require_non_default_address(&super_admin)?;
         Self::require_non_default_address(&user)?;
-        
+
         // Role management always requires multi-signature
-        return Err(ContractError::MultiSigRequired);
+        Err(ContractError::MultiSigRequired)
     }
 
     /// Get user roles
     pub fn get_user_roles(env: Env, user: Address) -> Result<Vec<Role>, ContractError> {
-        let admin_roles: Map<Address, Vec<Role>> = env.storage().instance().get(&ADMIN_ROLES).unwrap_or(Map::new(&env));
+        let admin_roles: Map<Address, Vec<Role>> = env
+            .storage()
+            .instance()
+            .get(&ADMIN_ROLES)
+            .unwrap_or(Map::new(&env));
         Ok(admin_roles.get(user).unwrap_or(Vec::new(&env)))
     }
 
     /// Get multi-signature proposal details
     pub fn get_proposal(env: Env, proposal_id: u64) -> Result<MultiSigProposal, ContractError> {
-        let proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
-        proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)
+        let proposals: Map<u64, MultiSigProposal> = env
+            .storage()
+            .instance()
+            .get(&MULTI_SIG_PROPOSALS)
+            .unwrap_or(Map::new(&env));
+        proposals
+            .get(proposal_id)
+            .ok_or(ContractError::ProposalNotFound)
     }
 
     /// Check if a proposal can be executed
