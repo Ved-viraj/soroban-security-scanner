@@ -18,12 +18,12 @@ interface RTLConfig {
  * Provides utilities for handling RTL layouts and styling
  */
 export function useRTL(): RTLConfig {
-  const { direction, isRTLDirection } = useLanguage();
+  const { direction, isRTLDirection, currentLanguage } = useLanguage();
 
   useEffect(() => {
     // Update document direction
     document.documentElement.dir = direction;
-    document.documentElement.lang = useLanguage().currentLanguage;
+    document.documentElement.lang = currentLanguage;
     
     // Add RTL class to body for CSS targeting
     if (isRTLDirection) {
@@ -33,7 +33,7 @@ export function useRTL(): RTLConfig {
       document.body.classList.add('ltr');
       document.body.classList.remove('rtl');
     }
-  }, [direction, isRTLDirection]);
+  }, [direction, isRTLDirection, currentLanguage]);
 
   const config: RTLConfig = {
     direction,
@@ -56,18 +56,18 @@ export function useRTL(): RTLConfig {
 export function useRTLStyles() {
   const rtl = useRTL();
 
-  const getStyle = (property: string, ltrValue: any, rtlValue: any) => {
+  const getStyle = (property: string, ltrValue: string, rtlValue: string) => {
     return rtl.isRTL ? rtlValue : ltrValue;
   };
 
-  const getMarginStyle = (start: number, end: number) => {
+  const getMarginStyle = (start: string | number, end: string | number) => {
     return {
       [rtl.marginStart]: start,
       [rtl.marginEnd]: end
     };
   };
 
-  const getPaddingStyle = (start: number, end: number) => {
+  const getPaddingStyle = (start: string | number, end: string | number) => {
     return {
       [rtl.paddingStart]: start,
       [rtl.paddingEnd]: end

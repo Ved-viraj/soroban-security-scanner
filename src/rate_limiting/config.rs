@@ -1,10 +1,10 @@
 //! Rate limiting configuration
 
+use crate::rate_limiting::types::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::Duration;
-use crate::rate_limiting::types::*;
 
 /// Main rate limiting configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,7 +30,7 @@ pub struct RateLimitConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         let mut default_policies = HashMap::new();
-        
+
         // Unauthenticated users - very restrictive
         default_policies.insert(
             RateLimitTier::Unauthenticated,
@@ -103,8 +103,10 @@ pub struct IpRestrictions {
     pub blocked_ranges: Vec<String>,
     /// Whitelisted IP addresses (bypass all limits)
     pub whitelisted_ips: Vec<IpAddr>,
-    /// Trusted proxy IPs
+    /// Trusted proxy IPs (exact match)
     pub trusted_proxies: Vec<IpAddr>,
+    /// Trusted proxy CIDR ranges (e.g. 10.0.0.0/8, 172.16.0.0/12)
+    pub trusted_proxy_ranges: Vec<String>,
     /// Maximum concurrent connections per IP
     pub max_concurrent_per_ip: u32,
     /// Rate limit for unknown/new IPs
@@ -122,6 +124,7 @@ impl Default for IpRestrictions {
             blocked_ranges: Vec::new(),
             whitelisted_ips: Vec::new(),
             trusted_proxies: Vec::new(),
+            trusted_proxy_ranges: Vec::new(),
             max_concurrent_per_ip: 10,
             unknown_ip_policy: Some(RateLimitPolicy::new(5, RateLimitWindow::Minute)),
             enable_reputation_check: false,
@@ -286,7 +289,7 @@ impl Default for FailoverConfig {
         Self {
             enable_local_fallback: true,
             fallback_cache_duration: Duration::from_secs(300), // 5 minutes
-            max_failover_duration: Duration::from_secs(3600), // 1 hour
+            max_failover_duration: Duration::from_secs(3600),  // 1 hour
             alert_on_failover: true,
         }
     }
@@ -404,9 +407,9 @@ impl RateLimitConfig {
     pub fn find_endpoint_config(&self, path: &str, method: &str) -> Option<&EndpointRateLimit> {
         self.endpoints.iter().find(|endpoint| {
             // Check if method matches
-            let method_matches = endpoint.methods.contains(&"*".to_string()) 
+            let method_matches = endpoint.methods.contains(&"*".to_string())
                 || endpoint.methods.contains(&method.to_string());
-            
+
             if !method_matches {
                 return false;
             }
@@ -443,7 +446,9 @@ impl RateLimitConfig {
         // Validate distributed config if enabled
         if self.distributed.enabled {
             if self.distributed.redis.url.is_empty() {
-                return Err("Redis URL is required when distributed rate limiting is enabled".to_string());
+                return Err(
+                    "Redis URL is required when distributed rate limiting is enabled".to_string(),
+                );
             }
         }
 

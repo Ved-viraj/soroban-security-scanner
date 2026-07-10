@@ -3,10 +3,10 @@
 //! Core data structures for threshold management, signature aggregation,
 //! and approval workflows.
 
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Status of a multi-sig proposal
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +53,16 @@ pub struct MultiSigSigner {
     pub comments: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// If Some, this signer was revoked and can no longer participate
+    #[serde(default)]
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+impl MultiSigSigner {
+    /// Whether this signer is currently active (not revoked)
+    pub fn is_active(&self) -> bool {
+        self.revoked_at.is_none()
+    }
 }
 
 /// A multi-signature proposal
@@ -107,9 +117,7 @@ impl MultiSigProposal {
 
     /// Whether the proposal has expired
     pub fn is_expired(&self) -> bool {
-        self.expires_at
-            .map(|exp| Utc::now() > exp)
-            .unwrap_or(false)
+        self.expires_at.map(|exp| Utc::now() > exp).unwrap_or(false)
     }
 }
 
@@ -200,6 +208,12 @@ pub enum MultiSigError {
 
     #[error("Duplicate signer address: {0}")]
     DuplicateSigner(String),
+
+    #[error("Signer {0} has been revoked and can no longer sign")]
+    SignerRevoked(String),
+
+    #[error("Execution blocked: signer {0} was revoked after signing")]
+    RevokedSignerOnExecution(String),
 
     #[error("Database error: {0}")]
     DatabaseError(String),

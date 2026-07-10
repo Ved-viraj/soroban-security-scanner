@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 
 type Status = 'connecting' | 'open' | 'closed' | 'error';
 
-interface UseWebSocketOptions {
+export interface UseWebSocketOptions {
   onMessage?: (data: unknown) => void;
   onOpen?: () => void;
   onClose?: () => void;
@@ -51,7 +51,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
   useEffect(() => {
     connect();
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (timeoutRef.current) {clearTimeout(timeoutRef.current);}
       wsRef.current?.close();
     };
   }, [connect]);
