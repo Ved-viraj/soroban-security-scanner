@@ -1,29 +1,33 @@
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, Map, String, Symbol, Vec};
+#![no_std]
+extern crate alloc;
+use alloc::format;
+use alloc::string::ToString;
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Map, String, Symbol, Vec, vec};
 
 // Contract state keys
-const ADMIN: Symbol = Symbol::short("ADMIN");
-const BOUNTY_POOL: Symbol = Symbol::short("BOUNTY");
-const VULNERABILITIES: Symbol = Symbol::short("VULNS");
-const REPUTATION: Symbol = Symbol::short("REPUT");
-const ESCROW: Symbol = Symbol::short("ESCROW");
-const EMERGENCY_POOL: Symbol = Symbol::short("EMERG");
-const REPORTS: Symbol = Symbol::short("RPTS");
-const ESCROWS: Symbol = Symbol::short("ESCRS");
-const EMERGENCY_ALERTS: Symbol = Symbol::short("EALRTS");
-const REPORT_COUNTER: Symbol = Symbol::short("RPTCTR");
-const ESCROW_COUNTER: Symbol = Symbol::short("ESCCTR");
-const ALERT_COUNTER: Symbol = Symbol::short("ALRTCTR");
-const REPORT_NONCES: Symbol = Symbol::short("RPTNONC");
-const ESCROW_NONCES: Symbol = Symbol::short("ESCNONC");
-const ALERT_NONCES: Symbol = Symbol::short("ALRNONC");
+const ADMIN: Symbol = symbol_short!("ADMIN");
+const BOUNTY_POOL: Symbol = symbol_short!("BOUNTY");
+const VULNERABILITIES: Symbol = symbol_short!("VULNS");
+const REPUTATION: Symbol = symbol_short!("REPUT");
+const ESCROW: Symbol = symbol_short!("ESCROW");
+const EMERGENCY_POOL: Symbol = symbol_short!("EMERG");
+const REPORTS: Symbol = symbol_short!("RPTS");
+const ESCROWS: Symbol = symbol_short!("ESCRS");
+const EMERGENCY_ALERTS: Symbol = symbol_short!("EALRTS");
+const REPORT_COUNTER: Symbol = symbol_short!("RPTCTR");
+const ESCROW_COUNTER: Symbol = symbol_short!("ESCCTR");
+const ALERT_COUNTER: Symbol = symbol_short!("ALRTCTR");
+const REPORT_NONCES: Symbol = symbol_short!("RPTNONC");
+const ESCROW_NONCES: Symbol = symbol_short!("ESCNONC");
+const ALERT_NONCES: Symbol = symbol_short!("ALRNONC");
 const MAX_TEXT_LEN: u32 = 280;
 
 // Role-based access control keys
-const ADMIN_ROLES: Symbol = Symbol::short("ADM_ROLES");
-const MULTI_SIG_PROPOSALS: Symbol = Symbol::short("MS_PROPS");
-const MULTI_SIG_COUNTER: Symbol = Symbol::short("MS_CNTR");
-const ROLE_PERMISSIONS: Symbol = Symbol::short("ROLE_PERM");
-const TIME_LOCKS: Symbol = Symbol::short("TIME_LOCK");
+const ADMIN_ROLES: Symbol = symbol_short!("ADM_ROLE");
+const MULTI_SIG_PROPOSALS: Symbol = symbol_short!("MS_PROPS");
+const MULTI_SIG_COUNTER: Symbol = symbol_short!("MS_CNTR");
+const ROLE_PERMISSIONS: Symbol = symbol_short!("ROLE_PER");
+const TIME_LOCKS: Symbol = symbol_short!("TIME_LOCK");
 
 // Role definitions
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -156,6 +160,12 @@ pub struct SecurityScannerContract;
 
 #[contractimpl]
 impl SecurityScannerContract {
+    fn sdk_string_to_rust(s: soroban_sdk::String) -> alloc::string::String {
+        let bytes = s.to_bytes();
+        let vec = bytes.to_alloc_vec();
+        alloc::string::String::from_utf8(vec).expect("invalid utf-8")
+    }
+
     fn require_non_default_address(addr: &Address) -> Result<(), ContractError> {
         let _ = addr;
         Ok(())
@@ -220,7 +230,7 @@ impl SecurityScannerContract {
     // Role-based access control helper functions
     fn has_role(env: &Env, user: &Address, role: Role) -> bool {
         let admin_roles: Map<Address, Vec<Role>> = env.storage().instance().get(&ADMIN_ROLES).unwrap_or(Map::new(env));
-        if let Some(roles) = admin_roles.get(user) {
+        if let Some(roles) = admin_roles.get(user.clone()) {
             roles.contains(&role)
         } else {
             false
@@ -231,9 +241,9 @@ impl SecurityScannerContract {
         let role_permissions: Map<Role, Vec<Permission>> = env.storage().instance().get(&ROLE_PERMISSIONS).unwrap_or(Map::new(env));
         let admin_roles: Map<Address, Vec<Role>> = env.storage().instance().get(&ADMIN_ROLES).unwrap_or(Map::new(env));
         
-        if let Some(roles) = admin_roles.get(user) {
+        if let Some(roles) = admin_roles.get(user.clone()) {
             for role in roles {
-                if let Some(permissions) = role_permissions.get(&role) {
+                if let Some(permissions) = role_permissions.get(role) {
                     if permissions.contains(&permission) {
                         return true;
                     }
@@ -264,6 +274,7 @@ impl SecurityScannerContract {
         
         // SuperAdmin has all permissions
         role_permissions.set(Role::SuperAdmin, vec![
+            &env,
             Permission::VerifyVulnerability,
             Permission::VerifyEmergency,
             Permission::ManageEscrow,
@@ -274,17 +285,20 @@ impl SecurityScannerContract {
         
         // Verifier can verify vulnerabilities and emergencies
         role_permissions.set(Role::Verifier, vec![
+            &env,
             Permission::VerifyVulnerability,
             Permission::VerifyEmergency,
         ]);
         
         // EscrowManager can manage escrows
         role_permissions.set(Role::EscrowManager, vec![
+            &env,
             Permission::ManageEscrow,
         ]);
         
         // TreasuryManager can manage funding pools
         role_permissions.set(Role::TreasuryManager, vec![
+            &env,
             Permission::ManageTreasury,
         ]);
         
@@ -327,7 +341,7 @@ impl SecurityScannerContract {
             return Err(ContractError::ProposalAlreadyExecuted);
         }
         
-        if proposal.approvals.contains_key(approver) {
+        if proposal.approvals.contains_key(approver.clone()) {
             return Err(ContractError::AlreadyApproved);
         }
         
@@ -365,7 +379,7 @@ impl SecurityScannerContract {
             return Err(ContractError::ExternalCallFailed);
         }
         env.events().publish(
-            (Symbol::new(env, "payout_ready"),),
+                    (symbol_short!("payout"),),
             (escrow_id, recipient.clone(), amount),
         );
         Ok(())
@@ -393,7 +407,7 @@ impl SecurityScannerContract {
         
         // Set initial admin as SuperAdmin
         let mut admin_roles: Map<Address, Vec<Role>> = Map::new(&env);
-        admin_roles.set(admin.clone(), vec![Role::SuperAdmin]);
+        admin_roles.set(admin.clone(), vec![&env, Role::SuperAdmin]);
         env.storage().instance().set(&ADMIN_ROLES, &admin_roles);
         
         // Initialize multi-signature proposals map
@@ -429,7 +443,7 @@ impl SecurityScannerContract {
             description: description.clone(),
             location: location.clone(),
             timestamp: env.ledger().timestamp(),
-            status: String::from_slice(&env, "pending"),
+            status: String::from_str(&env, "pending"),
             bounty_amount: 0i128,
         };
 
@@ -474,7 +488,7 @@ impl SecurityScannerContract {
             .ok_or(ContractError::NotFound)?;
 
         // Update status and bounty
-        report.status = String::from_slice(&env, "verified");
+        report.status = String::from_str(&env, "verified");
         report.bounty_amount = bounty_amount;
         
         // Store updated report
@@ -500,14 +514,15 @@ impl SecurityScannerContract {
         Self::require_permission(&env, &proposer, Permission::VerifyVulnerability)?;
         
         let parameters = vec![
-            report_id.to_string(),
-            bounty_amount.to_string(),
+            &env,
+            String::from_str(&env, &report_id.to_string()),
+            String::from_str(&env, &bounty_amount.to_string()),
         ];
         
         Self::create_multi_sig_proposal(
             &env,
             &proposer,
-            String::from_slice(&env, "verify_vulnerability"),
+            String::from_str(&env, "verify_vulnerability"),
             parameters,
             required_approvals,
             execution_delay,
@@ -542,11 +557,11 @@ impl SecurityScannerContract {
         let proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
         let proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
         
-        let report_id: u64 = proposal.parameters.get(0).unwrap().parse().unwrap();
-        let bounty_amount: i128 = proposal.parameters.get(1).unwrap().parse().unwrap();
+        let report_id: u64 = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap()).parse().unwrap();
+        let bounty_amount: i128 = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap()).parse().unwrap();
         
         // Execute the verification
-        Self::verify_vulnerability(env, executor, report_id, bounty_amount)?;
+        Self::verify_vulnerability(env.clone(), executor, report_id, bounty_amount)?;
         
         // Mark proposal as executed
         let mut proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
@@ -647,7 +662,7 @@ impl SecurityScannerContract {
             beneficiary: beneficiary.clone(),
             amount,
             purpose: purpose.clone(),
-            status: String::from_slice(&env, "pending"),
+            status: String::from_str(&env, "pending"),
             created_at: current_time,
             lock_until,
             conditions_met: false,
@@ -689,7 +704,7 @@ impl SecurityScannerContract {
         }
 
         // Check if escrow can be released
-        if escrow.status == String::from_slice(&env, "released") {
+        if escrow.status == String::from_str(&env, "released") {
             return Err(ContractError::InvalidEscrowStatus);
         }
 
@@ -703,7 +718,7 @@ impl SecurityScannerContract {
         Self::execute_payout_placeholder(&env, &escrow.beneficiary, escrow.amount, escrow_id)?;
 
         // Update escrow status
-        escrow.status = String::from_slice(&env, "released");
+        escrow.status = String::from_str(&env, "released");
         escrow.release_signature = signature;
         escrows.set(escrow_id, escrow.clone());
         env.storage().instance().set(&ESCROWS, &escrows);
@@ -738,7 +753,7 @@ impl SecurityScannerContract {
         }
 
         // Check if escrow can be refunded
-        if escrow.status == String::from_slice(&env, "released") {
+        if escrow.status == String::from_str(&env, "released") {
             return Err(ContractError::InvalidEscrowStatus);
         }
 
@@ -752,7 +767,7 @@ impl SecurityScannerContract {
         Self::execute_payout_placeholder(&env, &escrow.depositor, escrow.amount, escrow_id)?;
 
         // Update escrow status
-        escrow.status = String::from_slice(&env, "refunded");
+        escrow.status = String::from_str(&env, "refunded");
         escrows.set(escrow_id, escrow.clone());
         env.storage().instance().set(&ESCROWS, &escrows);
 
@@ -807,7 +822,7 @@ impl SecurityScannerContract {
         Self::require_valid_text(&description)?;
         Self::require_valid_text(&location)?;
         // Verify severity is critical or emergency
-        if severity != String::from_slice(&env, "critical") && severity != String::from_slice(&env, "emergency") {
+        if severity != String::from_str(&env, "critical") && severity != String::from_str(&env, "emergency") {
             return Err(ContractError::InvalidInput);
         }
 
@@ -815,7 +830,7 @@ impl SecurityScannerContract {
 
         let alert_id = Self::next_counter(&env, ALERT_COUNTER)?;
         let alert_nonce = Self::generate_nonce(&env, &reporter, alert_id);
-        let emergency_reward = if severity == String::from_slice(&env, "emergency") {
+        let emergency_reward = if severity == String::from_str(&env, "emergency") {
             10_000_000i128
         } else {
             5_000_000i128
@@ -830,7 +845,7 @@ impl SecurityScannerContract {
             description: description.clone(),
             location: location.clone(),
             timestamp: env.ledger().timestamp(),
-            status: String::from_slice(&env, "pending"),
+            status: String::from_str(&env, "pending"),
             emergency_reward,
             verified_by: None,
         };
@@ -849,8 +864,8 @@ impl SecurityScannerContract {
     pub fn verify_emergency_vulnerability(
         env: Env,
         admin: Address,
-        alert_id: u64,
-        verified: bool,
+        _alert_id: u64,
+        _verified: bool,
     ) -> Result<(), ContractError> {
         admin.require_auth();
         Self::require_non_default_address(&admin)?;
@@ -875,8 +890,9 @@ impl SecurityScannerContract {
         Self::require_permission(&env, &proposer, Permission::VerifyEmergency)?;
         
         let parameters = vec![
-            alert_id.to_string(),
-            verified.to_string(),
+            &env,
+            String::from_str(&env, &alert_id.to_string()),
+            String::from_str(&env, &verified.to_string()),
         ];
         
         // Emergency verifications have shorter delay but higher approval requirements
@@ -886,7 +902,7 @@ impl SecurityScannerContract {
         Self::create_multi_sig_proposal(
             &env,
             &proposer,
-            String::from_slice(&env, "verify_emergency_vulnerability"),
+            String::from_str(&env, "verify_emergency_vulnerability"),
             parameters,
             emergency_approvals,
             emergency_delay,
@@ -921,11 +937,11 @@ impl SecurityScannerContract {
         let proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
         let proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
         
-        let alert_id: u64 = proposal.parameters.get(0).unwrap().parse().unwrap();
-        let verified: bool = proposal.parameters.get(1).unwrap().parse().unwrap();
+        let alert_id: u64 = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap()).parse().unwrap();
+        let verified: bool = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap()).parse().unwrap();
         
         // Execute the emergency verification
-        Self::execute_emergency_verification_internal(env, executor, alert_id, verified)?;
+        Self::execute_emergency_verification_internal(env.clone(), executor, alert_id, verified)?;
         
         // Mark proposal as executed
         let mut proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
@@ -950,7 +966,7 @@ impl SecurityScannerContract {
             .ok_or(ContractError::NotFound)?;
 
         if verified {
-            alert.status = String::from_slice(&env, "verified");
+            alert.status = String::from_str(&env, "verified");
             alert.verified_by = Some(admin.clone());
 
             // Create immediate escrow for emergency reward
@@ -959,7 +975,7 @@ impl SecurityScannerContract {
                 admin.clone(), // Admin deposits on behalf of the platform
                 alert.reporter.clone(),
                 alert.emergency_reward,
-                String::from_slice(&env, "emergency"),
+                String::from_str(&env, "emergency"),
                 0, // No lock period for emergency rewards
             )?;
 
@@ -970,7 +986,7 @@ impl SecurityScannerContract {
             // Update reputation
             Self::update_reputation(env.clone(), alert.reporter.clone(), 1, alert.emergency_reward)?;
         } else {
-            alert.status = String::from_slice(&env, "false_positive");
+            alert.status = String::from_str(&env, "false_positive");
         }
 
         alerts.set(alert_id, alert);
@@ -1025,10 +1041,10 @@ impl SecurityScannerContract {
     
     /// Grant a role to an address (requires SuperAdmin role and multi-sig)
     pub fn grant_role(
-        env: Env,
+        _env: Env,
         super_admin: Address,
         user: Address,
-        role: Role,
+        _role: Role,
     ) -> Result<(), ContractError> {
         super_admin.require_auth();
         Self::require_non_default_address(&super_admin)?;
@@ -1058,8 +1074,9 @@ impl SecurityScannerContract {
         };
         
         let parameters = vec![
-            format!("{:?}", user),
-            role_str.to_string(),
+            &env,
+            String::from_str(&env, &format!("{:?}", user)),
+            String::from_str(&env, role_str),
         ];
         
         // Role management has higher security requirements
@@ -1069,7 +1086,7 @@ impl SecurityScannerContract {
         Self::create_multi_sig_proposal(
             &env,
             &proposer,
-            String::from_slice(&env, "grant_role"),
+            String::from_str(&env, "grant_role"),
             parameters,
             role_approvals,
             role_delay,
@@ -1104,12 +1121,12 @@ impl SecurityScannerContract {
         let proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
         let proposal: MultiSigProposal = proposals.get(proposal_id).ok_or(ContractError::ProposalNotFound)?;
         
-        let user_address_str = proposal.parameters.get(0).unwrap();
-        let role_str = proposal.parameters.get(1).unwrap();
+        let user_addr_s = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap());
+        let role_s = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap());
         
         // Parse address and role (simplified for this example)
-        let user_address = Address::from_string(&String::from_slice(&env, user_address_str));
-        let role = match role_str.as_str() {
+        let user_address = Address::from_string(&String::from_str(&env, &user_addr_s));
+        let role = match role_s.as_str() {
             "SuperAdmin" => Role::SuperAdmin,
             "Verifier" => Role::Verifier,
             "EscrowManager" => Role::EscrowManager,
@@ -1118,7 +1135,7 @@ impl SecurityScannerContract {
         };
         
         // Execute the role grant
-        Self::execute_role_grant_internal(env, user_address, role)?;
+        Self::execute_role_grant_internal(env.clone(), user_address, role)?;
         
         // Mark proposal as executed
         let mut proposals: Map<u64, MultiSigProposal> = env.storage().instance().get(&MULTI_SIG_PROPOSALS).unwrap_or(Map::new(&env));
@@ -1138,7 +1155,7 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         let mut admin_roles: Map<Address, Vec<Role>> = env.storage().instance().get(&ADMIN_ROLES).unwrap_or(Map::new(&env));
         
-        let mut user_roles = admin_roles.get(&user).unwrap_or(Vec::new(&env));
+        let mut user_roles = admin_roles.get(user.clone()).unwrap_or(Vec::new(&env));
         if !user_roles.contains(&role) {
             user_roles.push_back(role);
         }
@@ -1151,10 +1168,10 @@ impl SecurityScannerContract {
 
     /// Revoke a role from an address (requires SuperAdmin role and multi-sig)
     pub fn revoke_role(
-        env: Env,
+        _env: Env,
         super_admin: Address,
         user: Address,
-        role: Role,
+        _role: Role,
     ) -> Result<(), ContractError> {
         super_admin.require_auth();
         Self::require_non_default_address(&super_admin)?;
@@ -1167,7 +1184,7 @@ impl SecurityScannerContract {
     /// Get user roles
     pub fn get_user_roles(env: Env, user: Address) -> Result<Vec<Role>, ContractError> {
         let admin_roles: Map<Address, Vec<Role>> = env.storage().instance().get(&ADMIN_ROLES).unwrap_or(Map::new(&env));
-        Ok(admin_roles.get(&user).unwrap_or(Vec::new(&env)))
+        Ok(admin_roles.get(user).unwrap_or(Vec::new(&env)))
     }
 
     /// Get multi-signature proposal details
