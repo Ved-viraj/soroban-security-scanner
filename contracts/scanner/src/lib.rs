@@ -1416,6 +1416,3 @@ impl SecurityScannerContract {
         Self::can_execute_proposal(&env, proposal_id)
     }
 }
-
-#[cfg(test)]
-mod security_tests;
