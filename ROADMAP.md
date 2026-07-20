@@ -1,8 +1,8 @@
 # Soroban Security Scanner — Roadmap
 
-> **Last updated:** June 15, 2026
+> **Last updated:** July 20, 2026
 
-This roadmap organizes the 30 open issues into three milestones with estimated timelines, dependencies, and success criteria for each.
+This roadmap organizes the 40 open issues (30 original + 10 new critical/high-severity issues from `CRITICAL_ISSUES.md`) into three milestones with estimated timelines, dependencies, and success criteria for each.
 
 ---
 
@@ -18,6 +18,11 @@ This milestone addresses issues that pose security risks, cause data loss, or br
 | # | Issue | Priority | Est. Effort |
 |---|-------|----------|-------------|
 | 14 | DefaultHasher Used Instead of Cryptographic Hash | **Critical** | 2–3 days |
+| 31 | HMAC-SHA1 TOTP — Deprecated Legacy Algorithm Weakens MFA | **Critical** | 2–3 days |
+| 32 | AcceptingVerifier Placeholder Has No Production Guard | **Critical** | 2–3 days |
+| 34 | Dependency Integrity Not Cryptographically Verified | **Critical** | 3–4 days |
+| 36 | Key Rotation Without Dual-Key Read Window | **Critical** | 3–4 days |
+| 40 | Sandbox Escape via WASM Host Function Imports | **Critical** | 4–5 days |
 | 24 | OAuth2 State Parameter Not Validated (CSRF) | **Critical** | 1–2 days |
 | 21 | Certificate Revocation List Not Implemented | **Critical** | 2–3 days |
 | 26 | Timelock Bypass in Emergency Upgrade | **Critical** | 3–4 days |
@@ -29,6 +34,9 @@ This milestone addresses issues that pose security risks, cause data loss, or br
 | # | Issue | Priority | Est. Effort |
 |---|-------|----------|-------------|
 | 2 | Access Control False Positives for Internal Helpers | **High** | 3–5 days |
+| 33 | No Dead Letter Queue — Unbounded Memory Leak | **Critical** | 2–3 days |
+| 37 | ML Model Poisoning via User-Contributed Labels | **High** | 3–4 days |
+| 38 | Non-Deterministic Fuzzing from Shared Mutable State | **High** | 4–5 days |
 | 11 | Stuck Scans Not Automatically Detected | **High** | 3–4 days |
 | 8 | Time Travel State Incompatibility with Upgraded WASM | **High** | 4–5 days |
 | 9 | Fuzzing Input Generator Misses Composite Edge Cases | **High** | 3–4 days |
@@ -38,6 +46,8 @@ This milestone addresses issues that pose security risks, cause data loss, or br
 
 | # | Issue | Priority | Est. Effort |
 |---|-------|----------|-------------|
+| 35 | In-Memory Rate Limiting Bypassed in Multi-Instance Deployments | **Critical** | 3–4 days |
+| 39 | SIEM Integration Stub-Only — No External Alert Delivery | **High** | 4–5 days |
 | 7 | Rate Limiting Ignores Reverse Proxy Headers | **High** | 2–3 days |
 | 6 | Notification Delivery Status Not Persisted | **High** | 3–4 days |
 | 23 | Offline Cached Data Inaccessible | **High** | 3–4 days |
@@ -45,17 +55,23 @@ This milestone addresses issues that pose security risks, cause data loss, or br
 
 ### Dependencies
 
-- Issue 14 (crypto) must be completed before any new auth features
+- Issue 14 (crypto) and Issue 31 (TOTP algorithm) must be completed before any new auth features
 - Issue 24 (OAuth2) blocks social login reliability
+- Issue 32 (WebAuthn guard) is a prerequisite for production WebAuthn deployment
 - Issue 5 (multi-sig) should precede Issue 19 (wizard validation)
 - Issue 2 (access control) is a prerequisite for any scanner accuracy improvements
+- Issue 34 (supply chain integrity) should precede any dependency update automation
+- Issue 35 (distributed rate limiting) and Issue 7 (proxy headers) are both required for production rate limiting
+- Issue 40 (WASM sandbox) must be completed before accepting untrusted contracts from external users
 
 ### Success Criteria
 
-- [ ] Zero critical-severity security vulnerabilities
+- [ ] Zero critical-severity security vulnerabilities (including the 9 new critical issues from CRITICAL_ISSUES.md)
 - [ ] All core scanner features produce reliable results (false positive rate < 5%)
-- [ ] No data loss scenarios on service restart or network interruption
-- [ ] Rate limiting works correctly behind production proxy infrastructure
+- [ ] No data loss scenarios on service restart or network interruption (key rotation safe, DLQ bounded)
+- [ ] Rate limiting works correctly behind production proxy infrastructure (distributed + proxy-aware)
+- [ ] WASM sandbox enforces host function import allowlist; all untrusted code execution is contained
+- [ ] SIEM integration delivers alerts to at least one external platform (Splunk or Elastic)
 
 ---
 
@@ -149,8 +165,8 @@ This milestone addresses issues that pose security risks, cause data loss, or br
 
 | Severity | Count | Milestone |
 |----------|-------|-----------|
-| 🔴 Critical | 6 | MVP Hardening |
-| 🟠 High | 13 | MVP Hardening (9), Quality (4) |
+| 🔴 Critical | 13 | MVP Hardening |
+| 🟠 High | 16 | MVP Hardening (12), Quality (4) |
 | 🟡 Medium | 10 | Quality & Performance |
 | 🟢 Low | 1 | Quality & Performance |
 
@@ -163,4 +179,4 @@ This milestone addresses issues that pose security risks, cause data loss, or br
 
 ---
 
-*See [ISSUE_TRACKER.md](./ISSUE_TRACKER.md) for the full kanban-style view of all 30 issues.*
+*See [ISSUE_TRACKER.md](./ISSUE_TRACKER.md) for the full kanban-style view of all 30 original issues. New critical issues (31–40) are detailed in [CRITICAL_ISSUES.md](./CRITICAL_ISSUES.md).*
