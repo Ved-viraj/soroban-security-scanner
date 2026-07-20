@@ -144,13 +144,20 @@ def main():
         type=str,
         help="Comma-separated list of issue numbers to create (e.g., 41,42,43)",
     )
+    parser.add_argument(
+        "--file",
+        type=str,
+        default=INPUT_FILE,
+        help=f"Path to the issues markdown file (default: {INPUT_FILE})",
+    )
     args = parser.parse_args()
 
-    if not os.path.exists(INPUT_FILE):
-        print(f"❌ Input file not found: {INPUT_FILE}", file=sys.stderr)
+    input_file = args.file
+    if not os.path.exists(input_file):
+        print(f"❌ Input file not found: {input_file}", file=sys.stderr)
         sys.exit(1)
 
-    issues = parse_issues(INPUT_FILE)
+    issues = parse_issues(input_file)
 
     if not issues:
         print("❌ No issues parsed from the file.", file=sys.stderr)
