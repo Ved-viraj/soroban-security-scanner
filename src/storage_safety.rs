@@ -335,7 +335,10 @@ impl StorageSafetyReport {
         } else {
             for o in &self.orphaned_keys {
                 let marker = if o.is_critical { "🔴" } else { "🟡" };
-                output.push_str(&format!("  {} Key: {} | Type: {:?}\n", marker, o.key, o.value_type));
+                output.push_str(&format!(
+                    "  {} Key: {} | Type: {:?}\n",
+                    marker, o.key, o.value_type
+                ));
             }
         }
         output.push('\n');
@@ -376,11 +379,7 @@ impl StorageSafetyAnalyzer {
 
     /// Analyze two contract WASM files for storage safety issues.
     /// This is the main entry point for the `storage-audit` command.
-    pub fn analyze_upgrade(
-        &self,
-        old_wasm: &[u8],
-        new_wasm: &[u8],
-    ) -> Result<StorageSafetyReport> {
+    pub fn analyze_upgrade(&self, old_wasm: &[u8], new_wasm: &[u8]) -> Result<StorageSafetyReport> {
         // Phase 1: Extract storage footprints from both WASM files
         let old_footprint = self.extract_storage_footprint(old_wasm, "old")?;
         let new_footprint = self.extract_storage_footprint(new_wasm, "new")?;
@@ -541,8 +540,14 @@ impl StorageSafetyAnalyzer {
         for old_key in &old.key_set {
             if new.key_set.contains(old_key) {
                 // Key exists in both - check for type mismatches and logical source differences
-                let old_type = old.write_types.get(old_key).or_else(|| old.read_types.get(old_key));
-                let new_type = new.write_types.get(old_key).or_else(|| new.read_types.get(old_key));
+                let old_type = old
+                    .write_types
+                    .get(old_key)
+                    .or_else(|| old.read_types.get(old_key));
+                let new_type = new
+                    .write_types
+                    .get(old_key)
+                    .or_else(|| new.read_types.get(old_key));
 
                 // Find the logical sources for this key
                 let old_source = old
@@ -607,7 +612,10 @@ impl StorageSafetyAnalyzer {
             } else {
                 // Key in old but not in new → orphaned
                 let is_critical = self.is_critical_key(old_key);
-                let old_type = old.write_types.get(old_key).or_else(|| old.read_types.get(old_key));
+                let old_type = old
+                    .write_types
+                    .get(old_key)
+                    .or_else(|| old.read_types.get(old_key));
 
                 let migration = if is_critical {
                     MigrationSuggestion::MigrateTo {
@@ -647,8 +655,7 @@ impl StorageSafetyAnalyzer {
         }
 
         // Check for dynamic key collisions
-        let dynamic_collisions =
-            self.detect_dynamic_key_collisions(old, new);
+        let dynamic_collisions = self.detect_dynamic_key_collisions(old, new);
         collisions.extend(dynamic_collisions);
 
         let migration_required = !critical_issues.is_empty();
@@ -783,8 +790,7 @@ impl StorageSafetyAnalyzer {
                 MigrationSuggestion::Remove(reason) => {
                     skeleton.push_str(&format!(
                         "    // WARNING: {} → removing key '{}'\n",
-                        reason,
-                        o.key
+                        reason, o.key
                     ));
                     skeleton.push_str(&format!(
                         "    // env.storage().instance().remove(&Symbol::new(env, \"{}\"));\n",
@@ -792,10 +798,7 @@ impl StorageSafetyAnalyzer {
                     ));
                 }
                 MigrationSuggestion::MigrateTo { old_key, new_key } => {
-                    skeleton.push_str(&format!(
-                        "    // Migrate '{}' → '{}':\n",
-                        old_key, new_key
-                    ));
+                    skeleton.push_str(&format!("    // Migrate '{}' → '{}':\n", old_key, new_key));
                     skeleton.push_str(&format!(
                         "    // let old_val: Option<Data> = env.storage().instance().get(&Symbol::new(env, \"{}\"));\n",
                         old_key
@@ -812,11 +815,7 @@ impl StorageSafetyAnalyzer {
                     skeleton.push_str("    // }\n");
                 }
                 MigrationSuggestion::Export(reason) => {
-                    skeleton.push_str(&format!(
-                        "    // Export '{}': {}\n",
-                        o.key,
-                        reason
-                    ));
+                    skeleton.push_str(&format!("    // Export '{}': {}\n", o.key, reason));
                 }
                 MigrationSuggestion::Keep => {
                     skeleton.push_str(&format!(
@@ -831,9 +830,7 @@ impl StorageSafetyAnalyzer {
             if c.type_mismatch {
                 skeleton.push_str(&format!(
                     "    // Type mismatch: key '{}' was {:?} in old, now {:?} in new.\n",
-                    c.key,
-                    c.old_type,
-                    c.new_type,
+                    c.key, c.old_type, c.new_type,
                 ));
                 skeleton.push_str("    // You must convert the value type before the upgrade.\n");
             }
@@ -868,7 +865,10 @@ pub fn run_storage_audit(old_wasm_path: &str, new_wasm_path: &str) -> Result<()>
     println!("{}", report.to_readable_string());
 
     if report.has_critical_issues() {
-        eprintln!("\n❌ Storage safety audit FAILED: {} critical issue(s) found.", report.critical_issues.len());
+        eprintln!(
+            "\n❌ Storage safety audit FAILED: {} critical issue(s) found.",
+            report.critical_issues.len()
+        );
         eprintln!("   Fix the critical issues before proceeding with the upgrade.");
         std::process::exit(1);
     } else if report.migration_required {
