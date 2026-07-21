@@ -10,7 +10,15 @@ interface TemplateVariable {
   description?: string;
   required: boolean;
   default_value?: string;
-  variable_type: 'String' | 'Number' | 'Email' | 'Phone' | 'Url' | 'Datetime' | 'Boolean' | 'Custom';
+  variable_type:
+    | 'String'
+    | 'Number'
+    | 'Email'
+    | 'Phone'
+    | 'Url'
+    | 'Datetime'
+    | 'Boolean'
+    | 'Custom';
 }
 
 interface TemplateInfo {
@@ -47,9 +55,7 @@ function highlightPlaceholders(text: string): React.ReactNode[] {
   while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
     // Add text before placeholder
     if (match.index > lastIndex) {
-      parts.push(
-        <span key={`txt-${lastIndex}`}>{text.slice(lastIndex, match.index)}</span>
-      );
+      parts.push(<span key={`txt-${lastIndex}`}>{text.slice(lastIndex, match.index)}</span>);
     }
     // Add highlighted placeholder
     parts.push(
@@ -159,7 +165,7 @@ const JsonContextEditor: React.FC<JsonContextEditorProps> = ({
       <div className="relative">
         <textarea
           value={jsonText}
-          onChange={(e) => handleJsonChange(e.target.value)}
+          onChange={e => handleJsonChange(e.target.value)}
           rows={Math.max(8, Object.keys(context).length + 3)}
           className={cn(
             'w-full px-4 py-3 font-mono text-sm border rounded-lg transition-all duration-200',
@@ -189,7 +195,10 @@ const JsonContextEditor: React.FC<JsonContextEditorProps> = ({
       {Object.keys(errors).length > 0 && (
         <div className="space-y-1">
           {Object.entries(errors).map(([varName, errMsg]) => (
-            <p key={varName} className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
+            <p
+              key={varName}
+              className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1"
+            >
               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                 <path
                   fillRule="evenodd"
@@ -209,7 +218,7 @@ const JsonContextEditor: React.FC<JsonContextEditorProps> = ({
           Available variables ({variables.length})
         </summary>
         <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-          {variables.map((v) => (
+          {variables.map(v => (
             <div
               key={v.name}
               className={cn(
@@ -314,7 +323,7 @@ export const TemplatePreview: React.FC<TemplatePreviewProps> = ({
   const [configCopied, setConfigCopied] = useState(false);
 
   const selectedTemplate = useMemo(
-    () => templates.find((t) => t.id === selectedTemplateId),
+    () => templates.find(t => t.id === selectedTemplateId),
     [templates, selectedTemplateId]
   );
 
@@ -386,9 +395,7 @@ export const TemplatePreview: React.FC<TemplatePreviewProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">
-            Template Preview
-          </h3>
+          <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Template Preview</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             Preview notification templates with sample data before sending to users
           </p>
@@ -415,7 +422,7 @@ export const TemplatePreview: React.FC<TemplatePreviewProps> = ({
         <select
           id="template-selector"
           value={selectedTemplateId}
-          onChange={(e) => setSelectedTemplateId(e.target.value)}
+          onChange={e => setSelectedTemplateId(e.target.value)}
           className={cn(
             'w-full px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg',
             'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100',
@@ -432,7 +439,7 @@ export const TemplatePreview: React.FC<TemplatePreviewProps> = ({
           }}
         >
           <option value="">Choose a template...</option>
-          {templates.map((t) => (
+          {templates.map(t => (
             <option key={t.id} value={t.id}>
               {t.name} (v{t.version}) — {t.supported_channels.join(', ')}
             </option>
@@ -521,7 +528,12 @@ export const TemplatePreview: React.FC<TemplatePreviewProps> = ({
                 {configCopied ? (
                   <span className="flex items-center gap-1.5 text-green-600">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 13l4 4L19 7"
+                      />
                     </svg>
                     Copied
                   </span>
@@ -642,7 +654,8 @@ export const TemplatePreview: React.FC<TemplatePreviewProps> = ({
             No Template Selected
           </h4>
           <p className="text-sm text-gray-500 dark:text-gray-400 text-center max-w-sm">
-            Choose a template from the dropdown above to preview how it renders with custom context data.
+            Choose a template from the dropdown above to preview how it renders with custom context
+            data.
           </p>
         </div>
       )}

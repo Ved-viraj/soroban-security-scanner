@@ -550,9 +550,7 @@ mod tests {
         context.insert("severity".to_string(), "Critical".to_string());
 
         // Render preview
-        let result = service
-            .render_preview("preview_test", context)
-            .await;
+        let result = service.render_preview("preview_test", context).await;
 
         assert!(result.is_ok());
         let preview = result.unwrap();
@@ -614,11 +612,12 @@ mod tests {
 
         let mut context = TemplateContext::new();
         context.insert("alert_type".to_string(), "CRITICAL".to_string());
-        context.insert("message".to_string(), "Reentrancy vulnerability detected".to_string());
+        context.insert(
+            "message".to_string(),
+            "Reentrancy vulnerability detected".to_string(),
+        );
 
-        let result = service
-            .render_preview("sms_preview_test", context)
-            .await;
+        let result = service.render_preview("sms_preview_test", context).await;
 
         assert!(result.is_ok());
         let preview = result.unwrap();
@@ -677,9 +676,7 @@ mod tests {
         context.insert("name".to_string(), "Bob".to_string());
         context.insert("scan_id".to_string(), "scan_456".to_string());
 
-        let result = service
-            .render_preview("missing_var_test", context)
-            .await;
+        let result = service.render_preview("missing_var_test", context).await;
 
         // Should fail due to missing required variable
         assert!(result.is_err());
@@ -787,9 +784,7 @@ mod tests {
         let mut context = TemplateContext::new();
         context.insert("count".to_string(), "3".to_string());
 
-        let result = service
-            .render_preview("inapp_preview", context)
-            .await;
+        let result = service.render_preview("inapp_preview", context).await;
 
         assert!(result.is_ok());
         let preview = result.unwrap();
