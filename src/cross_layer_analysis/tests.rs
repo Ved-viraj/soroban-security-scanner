@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::rust_analyzer::*;
+    // Import specific names to avoid RustFinding collision between
+    // rust_analyzer::RustFinding and report::RustFinding.
+    // Use RustAnalysisFinding (aliased in mod.rs) for analyzer types.
+    use super::rust_analyzer::{RustAnalyzer, RustFindingKind};
     use super::wasm_analyzer::*;
     use super::vm_analyzer::*;
     use super::compilation_mapping::*;
@@ -50,7 +53,7 @@ mod tests {
         let source = "fn transfer(to: Address, amount: i128) { /* no auth check */ }";
         analyzer.analyze_source(source, "test.rs");
 
-        let findings: Vec<&RustFinding> = analyzer
+        let findings: Vec<_> = analyzer
             .findings()
             .iter()
             .filter(|f| f.kind == RustFindingKind::MissingAuthCheck)
@@ -64,7 +67,7 @@ mod tests {
         let source = "let result = catch_unwind(|| { dangerous_op(); });";
         analyzer.analyze_source(source, "test.rs");
 
-        let findings: Vec<&RustFinding> = analyzer
+        let findings: Vec<_> = analyzer
             .findings()
             .iter()
             .filter(|f| f.kind == RustFindingKind::CatchUnwindSuppression)
@@ -242,7 +245,7 @@ mod tests {
     #[test]
     fn propagation_engine_propagates_refcell() {
         let engine = CrossLayerPropagationEngine::new();
-        let findings = vec![RustFinding {
+        let findings = vec![RustAnalysisFinding {
             kind: RustFindingKind::RefCellPanicRisk,
             description: "RefCell borrow_mut risk".into(),
             file: "test.rs".into(),
@@ -262,7 +265,7 @@ mod tests {
     #[test]
     fn propagation_engine_skips_non_propagatable() {
         let engine = CrossLayerPropagationEngine::new();
-        let findings = vec![RustFinding {
+        let findings = vec![RustAnalysisFinding {
             kind: RustFindingKind::CellMisuse,
             description: "Cell misuse".into(),
             file: "test.rs".into(),
