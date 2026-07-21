@@ -205,7 +205,12 @@ impl LendingPool {
     }
 
     /// Maximum borrowable amount given collateral.
-    pub fn max_borrow(&self, collateral_amount: u128, collateral_price: f64, borrow_price: f64) -> u128 {
+    pub fn max_borrow(
+        &self,
+        collateral_amount: u128,
+        collateral_price: f64,
+        borrow_price: f64,
+    ) -> u128 {
         if borrow_price <= 0.0 {
             return 0;
         }

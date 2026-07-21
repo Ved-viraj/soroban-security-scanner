@@ -133,7 +133,11 @@ impl BeamSearch {
             iterations += candidates.len();
 
             // Sort by fitness and keep top K
-            candidates.sort_by(|a, b| b.fitness.partial_cmp(&a.fitness).unwrap_or(std::cmp::Ordering::Equal));
+            candidates.sort_by(|a, b| {
+                b.fitness
+                    .partial_cmp(&a.fitness)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             beam = candidates
                 .into_iter()
                 .take(self.config.beam_width)
@@ -262,7 +266,11 @@ impl GeneticAlgorithm {
         parent_b: &TransactionSequence,
     ) -> TransactionSequence {
         let min_len = parent_a.transactions.len().min(parent_b.transactions.len());
-        let cut = if min_len > 0 { min_len / 2 } else { 0 };
+        let cut = if min_len > 0 {
+            min_len / 2
+        } else {
+            0
+        };
 
         let mut txs = Vec::new();
         txs.extend(parent_a.transactions[..cut].to_vec());
@@ -355,8 +363,16 @@ impl MonteCarloTreeSearch {
             .children
             .iter()
             .max_by(|a, b| {
-                let avg_a = if a.visits > 0 { a.total_reward / a.visits as f64 } else { 0.0 };
-                let avg_b = if b.visits > 0 { b.total_reward / b.visits as f64 } else { 0.0 };
+                let avg_a = if a.visits > 0 {
+                    a.total_reward / a.visits as f64
+                } else {
+                    0.0
+                };
+                let avg_b = if b.visits > 0 {
+                    b.total_reward / b.visits as f64
+                } else {
+                    0.0
+                };
                 avg_a.partial_cmp(&avg_b).unwrap_or(std::cmp::Ordering::Equal)
             });
 

@@ -140,9 +140,17 @@ impl OracleManipulationDetector {
         };
 
         let price_after = if token == pool.token_a {
-            if new_reserve_a == 0 { 0.0 } else { new_reserve_b as f64 / new_reserve_a as f64 }
+            if new_reserve_a == 0 {
+                0.0
+            } else {
+                new_reserve_b as f64 / new_reserve_a as f64
+            }
         } else {
-            if new_reserve_b == 0 { 0.0 } else { new_reserve_a as f64 / new_reserve_b as f64 }
+            if new_reserve_b == 0 {
+                0.0
+            } else {
+                new_reserve_a as f64 / new_reserve_b as f64
+            }
         };
 
         (price_before, price_after)
