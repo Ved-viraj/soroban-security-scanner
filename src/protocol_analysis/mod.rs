@@ -234,7 +234,8 @@ impl ProtocolVerificationReport {
                 }
             );
         }
-        println!("╠══════════════════════════════════════════════════════╣");        println!("║  Simulation: {} steps, {} violations found     ║",
+        println!("╠══════════════════════════════════════════════════════╣");
+        println!("║  Simulation: {} steps, {} violations found     ║",
             self.simulation_results.total_steps, self.simulation_results.violations.len());
         println!(
             "║  Adversarial: {} rounds, {} exploits found    ║",

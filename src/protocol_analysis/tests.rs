@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod protocol_analysis_tests {
-    use crate::protocol_analysis::manifest::{ContractRole, ContractSpec, InteractionSpec, ProtocolManifest};
+    use crate::protocol_analysis::manifest::{ContractRole, ContractSpec, ProtocolManifest};
     use crate::protocol_analysis::{
         InvariantKind, ProtocolInvariant, VerificationStatus,
     };
@@ -82,11 +82,7 @@ mod protocol_analysis_tests {
             status: VerificationStatus::Unknown,
             auto_inferred: false,
         };
-        let status =        super::bounded_model_check(
-            &make_test_manifest(),
-            &inv,
-        )
-        .unwrap();
+        let status = super::bounded_model_check(&make_test_manifest(), &inv).unwrap();
         assert_eq!(status, VerificationStatus::Verified);
     }
 
@@ -101,11 +97,7 @@ mod protocol_analysis_tests {
             status: VerificationStatus::Unknown,
             auto_inferred: false,
         };
-        let status =        super::bounded_model_check(
-            &make_test_manifest(),
-            &inv,
-        )
-        .unwrap();
+        let status = super::bounded_model_check(&make_test_manifest(), &inv).unwrap();
         assert_eq!(status, VerificationStatus::Unknown);
     }
 
@@ -208,7 +200,7 @@ mod protocol_analysis_tests {
                 auto_inferred: false,
             },
         ];
-        assert_eq!(        super::compute_exit_code(&invs), 0);
+        assert_eq!(super::compute_exit_code(&invs), 0);
     }
 
     #[test]
@@ -224,7 +216,7 @@ mod protocol_analysis_tests {
                 auto_inferred: false,
             },
         ];
-        assert_eq!(        super::compute_exit_code(&invs), 1);
+        assert_eq!(super::compute_exit_code(&invs), 1);
     }
 
     #[test]
@@ -240,7 +232,7 @@ mod protocol_analysis_tests {
                 auto_inferred: false,
             },
         ];
-        assert_eq!(        super::compute_exit_code(&invs), 2);
+        assert_eq!(super::compute_exit_code(&invs), 2);
     }
 
     #[test]

@@ -10,7 +10,6 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 use super::manifest::ProtocolManifest;
 
