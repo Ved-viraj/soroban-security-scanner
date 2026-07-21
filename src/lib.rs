@@ -122,6 +122,8 @@ pub mod multisig;
 #[cfg(feature = "broken-modules")]
 pub mod notification_service;
 #[cfg(feature = "broken-modules")]
+pub mod protocol_analysis;
+#[cfg(feature = "broken-modules")]
 pub mod rate_limiting;
 #[cfg(feature = "broken-modules")]
 pub mod report;
@@ -177,6 +179,11 @@ pub use notification_service::{
     DeliveryStatus, DeliveryTracker, InMemoryBackend, NotificationChannel, NotificationMessage,
     NotificationPriority, NotificationProvider, NotificationResult, NotificationService,
     NotificationServiceTrait, NotificationTemplate, Recipient, StorageBackend, TemplateManager,
+};
+#[cfg(feature = "broken-modules")]
+pub use protocol_analysis::{
+    dashboard::ProtocolHealth, manifest::ProtocolManifest, InvariantKind, ProtocolInvariant,
+    ProtocolVerificationReport, VerificationStatus,
 };
 #[cfg(feature = "broken-modules")]
 pub use rate_limiting::{
