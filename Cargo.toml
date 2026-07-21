@@ -59,6 +59,9 @@ handlebars = "6.0"
 anyhow = "1.0"
 thiserror = "1.0"
 
+# YAML support for protocol manifests
+serde_yaml = "0.9"
+
 # Transaction processing dependencies
 zstd = "0.13"
 regex = "1.10"

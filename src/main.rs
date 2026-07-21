@@ -22,6 +22,7 @@ use stellar_security_scanner::{
     emergency_stop::{EmergencyStop, StopCommand},
     gas_limits::{BatchGasEstimate, BatchGasEstimator, GasLimitConfig},
     kubernetes::{K8sScanManager, ScanAutoScaler, ScanPodConfig},
+    protocol_analysis::{self as protocol},
     report::{ReportFormat, SecurityReport},
     scanners::{InvariantScanner, SecurityScanner},
     time_travel_debugger::{ForkedState, TestResult, TimeTravelConfig, TimeTravelDebugger},
@@ -186,6 +187,29 @@ enum Commands {
     EmergencyStop {
         #[command(subcommand)]
         action: EmergencyStopAction,
+    },
+
+    /// Protocol-level invariant verification across multi-contract systems
+    ProtocolVerify {
+        /// Path to protocol manifest YAML/JSON file
+        #[arg(short, long)]
+        manifest: PathBuf,
+
+        /// Number of simulation steps (default: 100,000)
+        #[arg(long, default_value = "100000")]
+        simulation_steps: u64,
+
+        /// Output format (console, json)
+        #[arg(short, long, default_value = "console")]
+        format: String,
+
+        /// Output file path
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
     },
 }
 
@@ -641,6 +665,14 @@ fn main() -> Result<()> {
         Commands::K8sManage { action } => run_k8s_management(action),
         Commands::TimeTravel { action } => run_time_travel_action(action),
         Commands::DifferentialFuzzing { action } => run_differential_fuzzing_action(action),
+        Commands::EmergencyStop { action } => run_emergency_stop_action(action),
+        Commands::ProtocolVerify {
+            manifest,
+            simulation_steps,
+            format,
+            output,
+            verbose,
+        } => run_protocol_verify(manifest, simulation_steps, format, output, verbose),
         Commands::Batch { action } => run_batch_action(action),
     }
 }
@@ -1680,6 +1712,65 @@ fn run_emergency_stop_action(action: EmergencyStopAction) -> Result<()> {
 
             println!("✅ Emergency stop test passed");
         }
+    }
+
+    Ok(())
+}
+
+fn run_protocol_verify(
+    manifest: PathBuf,
+    simulation_steps: u64,
+    format: String,
+    output: Option<PathBuf>,
+    verbose: bool,
+) -> Result<()> {
+    println!(
+        "{}",
+        "🔬 Protocol-Level Invariant Verification".bold().cyan()
+    );
+    println!("═".repeat(55).cyan());
+
+    if verbose {
+        println!("📋 Manifest: {}", manifest.display());
+        println!("🔢 Simulation steps: {}", simulation_steps);
+        println!("📊 Output format: {}", format);
+        if let Some(ref out) = output {
+            println!("📄 Output file: {}", out.display());
+        }
+    }
+
+    let rt = tokio::runtime::Runtime::new()?;
+    let report = rt.block_on(
+        protocol::run_protocol_verification(&manifest, Some(simulation_steps)),
+    )?;
+
+    match format.to_lowercase().as_str() {
+        "json" => {
+            let json = report.to_json()?;
+            if let Some(out) = output {
+                std::fs::write(&out, &json)?;
+                println!("✅ Report saved to {}", out.display());
+            } else {
+                println!("{}", json);
+            }
+        }
+        _ => {
+            report.print_console();
+            if let Some(out) = output {
+                let json = report.to_json()?;
+                std::fs::write(&out, &json)?;
+                println!("📄 Report also saved to {}", out.display());
+            }
+        }
+    }
+
+    println!(
+        "\n🔚 Verification complete. Exit code: {}",
+        report.exit_code
+    );
+
+    if report.exit_code != 0 {
+        std::process::exit(report.exit_code as i32);
     }
 
     Ok(())
