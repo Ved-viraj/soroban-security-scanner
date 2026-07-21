@@ -487,10 +487,7 @@ pub fn verify_webhook_signature(
 ///
 /// Generates a unique webhook ID, signs the body with the subscriber's secret,
 /// and returns the complete signed payload.
-pub fn create_signed_webhook(
-    body: serde_json::Value,
-    secret: &str,
-) -> SignedWebhookPayload {
+pub fn create_signed_webhook(body: serde_json::Value, secret: &str) -> SignedWebhookPayload {
     let webhook_id = Uuid::new_v4().to_string();
     let timestamp = Utc::now().timestamp();
     let body_bytes = serde_json::to_vec(&body).unwrap_or_default();
@@ -530,16 +527,13 @@ impl WebhookRegistry {
     /// Get a subscriber by ID (without exposing the secret).
     /// Returns the subscriber metadata but redacts the signing secret.
     pub fn get_subscriber(&self, id: &str) -> Option<WebhookSubscriber> {
-        self.subscribers
-            .read()
-            .ok()
-            .and_then(|s| {
-                s.get(id).map(|sub| {
-                    let mut redacted = sub.clone();
-                    redacted.signing_secret = "[REDACTED]".to_string();
-                    redacted
-                })
+        self.subscribers.read().ok().and_then(|s| {
+            s.get(id).map(|sub| {
+                let mut redacted = sub.clone();
+                redacted.signing_secret = "[REDACTED]".to_string();
+                redacted
             })
+        })
     }
 
     /// Get a subscriber by ID including the signing secret (for signing outbound webhooks).
@@ -821,7 +815,10 @@ mod tests {
 
         // Register a subscriber
         let sub = registry
-            .register("https://hooks.example.com/deprecation".to_string(), ApiVersion::V1)
+            .register(
+                "https://hooks.example.com/deprecation".to_string(),
+                ApiVersion::V1,
+            )
             .unwrap();
 
         let webhook_id = "replay-webhook-id-001";
@@ -839,7 +836,10 @@ mod tests {
     fn test_webhook_subscriber_registration_generates_secret() {
         let registry = WebhookRegistry::new();
         let sub = registry
-            .register("https://hooks.example.com/deprecation".to_string(), ApiVersion::V2)
+            .register(
+                "https://hooks.example.com/deprecation".to_string(),
+                ApiVersion::V2,
+            )
             .unwrap();
 
         // Secret should be 64 hex chars (32 bytes)
@@ -931,6 +931,11 @@ mod tests {
         assert!(!verify_webhook_signature(body, "t=123", secret, 300));
         assert!(!verify_webhook_signature(body, "v1=abc", secret, 300));
         assert!(!verify_webhook_signature(body, "garbage", secret, 300));
-        assert!(!verify_webhook_signature(body, "t=notanumber,v1=abc", secret, 300));
+        assert!(!verify_webhook_signature(
+            body,
+            "t=notanumber,v1=abc",
+            secret,
+            300
+        ));
     }
 }

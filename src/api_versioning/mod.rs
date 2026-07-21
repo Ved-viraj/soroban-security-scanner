@@ -20,8 +20,8 @@ pub use changelog::{ApiChangeLog, ChangeEntry, ChangeType};
 pub use compatibility::{scenarios, CheckResult, CompatibilityReport, CompatibilityTestSuite};
 pub use deprecation::{
     create_signed_webhook, sign_webhook_payload, verify_webhook_signature, DeprecationPolicy,
-    SignedWebhookPayload, SunsetProcedures, UrgencyNotification, VersionRegistry,
-    WebhookRegistry, WebhookSubscriber,
+    SignedWebhookPayload, SunsetProcedures, UrgencyNotification, VersionRegistry, WebhookRegistry,
+    WebhookSubscriber,
 };
 pub use negotiation::{VersionError, VersionNegotiator};
 pub use router::{VersionedRouter, VersionedRouterConfig};
