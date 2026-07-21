@@ -110,6 +110,8 @@ pub mod emergency_stop;
 #[cfg(feature = "broken-modules")]
 pub mod escrow;
 #[cfg(feature = "broken-modules")]
+pub mod storage_safety;
+#[cfg(feature = "broken-modules")]
 pub mod event_logging;
 #[cfg(feature = "broken-modules")]
 pub mod gas_limits;
