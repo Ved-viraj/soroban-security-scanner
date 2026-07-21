@@ -108,11 +108,7 @@ pub fn load_manifest(path: &PathBuf) -> Result<ProtocolManifest> {
     let content =
         std::fs::read_to_string(path).with_context(|| format!("failed to read {:?}", path))?;
 
-    let manifest: ProtocolManifest = if path
-        .extension()
-        .map(|e| e == "json")
-        .unwrap_or(false)
-    {
+    let manifest: ProtocolManifest = if path.extension().map(|e| e == "json").unwrap_or(false) {
         serde_json::from_str(&content)?
     } else {
         serde_yaml::from_str(&content).unwrap_or_else(|_| {

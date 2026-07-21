@@ -122,6 +122,8 @@ pub mod multisig;
 #[cfg(feature = "broken-modules")]
 pub mod notification_service;
 #[cfg(feature = "broken-modules")]
+pub mod protocol_analysis;
+#[cfg(feature = "broken-modules")]
 pub mod rate_limiting;
 #[cfg(feature = "broken-modules")]
 pub mod report;
@@ -139,8 +141,6 @@ pub mod session;
 pub mod time_travel_debugger;
 #[cfg(feature = "broken-modules")]
 pub mod wallet;
-#[cfg(feature = "broken-modules")]
-pub mod protocol_analysis;
 
 #[cfg(feature = "broken-modules")]
 #[cfg(test)]
@@ -181,6 +181,11 @@ pub use notification_service::{
     NotificationServiceTrait, NotificationTemplate, Recipient, StorageBackend, TemplateManager,
 };
 #[cfg(feature = "broken-modules")]
+pub use protocol_analysis::{
+    dashboard::ProtocolHealth, manifest::ProtocolManifest, InvariantKind, ProtocolInvariant,
+    ProtocolVerificationReport, VerificationStatus,
+};
+#[cfg(feature = "broken-modules")]
 pub use rate_limiting::{
     EndpointRateLimit, RateLimitConfig, RateLimitContext, RateLimitMiddleware, RateLimitPolicy,
     RateLimitResult, RateLimitStats, RateLimitStorage, RateLimitTier, RateLimitViolation,
@@ -207,10 +212,4 @@ pub use wallet::{
     CreateWalletRequest, ImportWalletRequest, InMemoryWalletStore, RestoreWalletRequest, Wallet,
     WalletBalance, WalletError, WalletExport, WalletService, WalletStatus, WalletStore,
     WalletSyncRecord, WalletType,
-};
-#[cfg(feature = "broken-modules")]
-pub use protocol_analysis::{
-    dashboard::ProtocolHealth,
-    manifest::ProtocolManifest,
-    InvariantKind, ProtocolInvariant, ProtocolVerificationReport, VerificationStatus,
 };

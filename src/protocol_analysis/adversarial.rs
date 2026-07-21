@@ -132,9 +132,15 @@ fn build_operation_pool(protocol: &ProtocolManifest) -> Vec<(String, String)> {
     for contract in &protocol.contracts {
         let funcs = match &contract.role {
             super::manifest::ContractRole::Token => vec!["transfer", "mint", "burn", "approve"],
-            super::manifest::ContractRole::AMMPool => vec!["swap", "add_liquidity", "remove_liquidity"],
-            super::manifest::ContractRole::LendingPool => vec!["deposit", "borrow", "repay", "liquidate"],
-            super::manifest::ContractRole::Vault => vec!["deposit_collateral", "withdraw_collateral", "mint_stable"],
+            super::manifest::ContractRole::AMMPool => {
+                vec!["swap", "add_liquidity", "remove_liquidity"]
+            }
+            super::manifest::ContractRole::LendingPool => {
+                vec!["deposit", "borrow", "repay", "liquidate"]
+            }
+            super::manifest::ContractRole::Vault => {
+                vec!["deposit_collateral", "withdraw_collateral", "mint_stable"]
+            }
             super::manifest::ContractRole::StakingPool => vec!["stake", "unstake", "claim_rewards"],
             super::manifest::ContractRole::Bridge => vec!["lock", "unlock", "mint_wrapped"],
             super::manifest::ContractRole::Governance => vec!["propose", "vote", "execute"],
@@ -154,10 +160,8 @@ fn does_sequence_violate_invariant(
     protocol: &ProtocolManifest,
 ) -> bool {
     // Check if operations in the sequence span the contracts the invariant depends on
-    let affected_contracts: std::collections::HashSet<&str> = sequence
-        .iter()
-        .map(|s| s.contract.as_str())
-        .collect();
+    let affected_contracts: std::collections::HashSet<&str> =
+        sequence.iter().map(|s| s.contract.as_str()).collect();
 
     let spans_all = inv
         .spans_contracts

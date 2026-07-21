@@ -87,9 +87,7 @@ pub struct CriticalSection {
 // Builder
 // ---------------------------------------------------------------------------
 
-pub fn build_protocol_call_graph(
-    protocol: &ProtocolManifest,
-) -> Result<ProtocolCallGraph> {
+pub fn build_protocol_call_graph(protocol: &ProtocolManifest) -> Result<ProtocolCallGraph> {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
 
@@ -211,9 +209,7 @@ fn find_critical_sections(
     // inconsistent. For example, during a swap, `reserve_x * reserve_y` may
     // temporarily change before the invariant is restored.
     for inv in &protocol.invariants {
-        if inv.expression.contains("reserve_x")
-            || inv.expression.contains("total_deposits")
-        {
+        if inv.expression.contains("reserve_x") || inv.expression.contains("total_deposits") {
             // Find the state-update and cleanup nodes for contracts in this invariant
             let mut seq = Vec::new();
             for c in &inv.spans_contracts {

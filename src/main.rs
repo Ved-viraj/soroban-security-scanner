@@ -1740,9 +1740,10 @@ fn run_protocol_verify(
     }
 
     let rt = tokio::runtime::Runtime::new()?;
-    let report = rt.block_on(
-        protocol::run_protocol_verification(&manifest, Some(simulation_steps)),
-    )?;
+    let report = rt.block_on(protocol::run_protocol_verification(
+        &manifest,
+        Some(simulation_steps),
+    ))?;
 
     match format.to_lowercase().as_str() {
         "json" => {

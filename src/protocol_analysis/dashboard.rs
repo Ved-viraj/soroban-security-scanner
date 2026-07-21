@@ -109,15 +109,10 @@ impl ProtocolHealth {
     pub fn render(&self) -> String {
         let mut out = String::new();
 
-        out.push_str(&format!(
-            "\n╔══════════════════════════════════════════╗\n"
-        ));
+        out.push_str(&format!("\n╔══════════════════════════════════════════╗\n"));
         out.push_str(&format!("║  PROTOCOL HEALTH DASHBOARD                ║\n"));
         out.push_str(&format!("╠══════════════════════════════════════════╣\n"));
-        out.push_str(&format!(
-            "║  Protocol: {:30}║\n",
-            self.protocol_name
-        ));
+        out.push_str(&format!("║  Protocol: {:30}║\n", self.protocol_name));
         out.push_str(&format!("╠══════════════════════════════════════════╣\n"));
         out.push_str(&format!("║  INVARIANTS                              ║\n"));
 

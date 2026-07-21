@@ -3,9 +3,7 @@
 #[cfg(test)]
 mod protocol_analysis_tests {
     use crate::protocol_analysis::manifest::{ContractRole, ContractSpec, ProtocolManifest};
-    use crate::protocol_analysis::{
-        InvariantKind, ProtocolInvariant, VerificationStatus,
-    };
+    use crate::protocol_analysis::{InvariantKind, ProtocolInvariant, VerificationStatus};
 
     fn make_test_manifest() -> ProtocolManifest {
         ProtocolManifest {
@@ -26,12 +24,11 @@ mod protocol_analysis_tests {
                 },
             ],
             interactions: vec![InteractionSpec {
-                    from_contract: "token_a".into(),
-                    from_function: "transfer".into(),
-                    to_contract: "pool".into(),
-                    to_function: "swap".into(),
-                },
-            ],
+                from_contract: "token_a".into(),
+                from_function: "transfer".into(),
+                to_contract: "pool".into(),
+                to_function: "swap".into(),
+            }],
             invariants: Vec::new(),
         }
     }
@@ -45,14 +42,14 @@ mod protocol_analysis_tests {
     #[test]
     fn test_manifest_validation_fails_on_bad_interaction() {
         let mut manifest = make_test_manifest();
-        manifest.interactions.push(
-            crate::protocol_analysis::manifest::InteractionSpec {
+        manifest
+            .interactions
+            .push(crate::protocol_analysis::manifest::InteractionSpec {
                 from_contract: "nonexistent".into(),
                 from_function: "foo".into(),
                 to_contract: "token_a".into(),
                 to_function: "bar".into(),
-            },
-        );
+            });
         assert!(manifest.validate().is_err());
     }
 
@@ -66,7 +63,11 @@ mod protocol_analysis_tests {
 
         // Should have inferred invariants for AMMPool and Token
         assert!(!manifest.invariants.is_empty());
-        let names: Vec<&str> = manifest.invariants.iter().map(|i| i.name.as_str()).collect();
+        let names: Vec<&str> = manifest
+            .invariants
+            .iter()
+            .map(|i| i.name.as_str())
+            .collect();
         assert!(names.contains(&"pool__constant_product"));
         assert!(names.contains(&"token_a__supply_equals_balances"));
     }
@@ -104,8 +105,8 @@ mod protocol_analysis_tests {
     #[test]
     fn test_call_graph_builds() {
         let manifest = make_test_manifest();
-        let graph = crate::protocol_analysis::call_graph::build_protocol_call_graph(&manifest)
-            .unwrap();
+        let graph =
+            crate::protocol_analysis::call_graph::build_protocol_call_graph(&manifest).unwrap();
         // Should have nodes for each contract × phase
         assert!(graph.nodes.len() >= 2 * 8); // 2 contracts × 8 phases
         assert!(!graph.edges.is_empty());
@@ -117,10 +118,9 @@ mod protocol_analysis_tests {
     fn test_simulation_basic() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let manifest = make_test_manifest();
-        let report = rt.block_on(
-            crate::protocol_analysis::simulation::run_protocol_simulation(&manifest, 100),
-        )
-        .unwrap();
+        let report = rt
+            .block_on(crate::protocol_analysis::simulation::run_protocol_simulation(&manifest, 100))
+            .unwrap();
 
         assert_eq!(report.total_steps, 100);
         // Coverage heatmap should have entries for our contracts
@@ -189,49 +189,43 @@ mod protocol_analysis_tests {
 
     #[test]
     fn test_compute_exit_code_all_verified() {
-        let invs = vec![
-            ProtocolInvariant {
-                name: "a".into(),
-                description: "a".into(),
-                expression: "x".into(),
-                kind: InvariantKind::Structural,
-                spans_contracts: vec![],
-                status: VerificationStatus::Verified,
-                auto_inferred: false,
-            },
-        ];
+        let invs = vec![ProtocolInvariant {
+            name: "a".into(),
+            description: "a".into(),
+            expression: "x".into(),
+            kind: InvariantKind::Structural,
+            spans_contracts: vec![],
+            status: VerificationStatus::Verified,
+            auto_inferred: false,
+        }];
         assert_eq!(super::compute_exit_code(&invs), 0);
     }
 
     #[test]
     fn test_compute_exit_code_violated() {
-        let invs = vec![
-            ProtocolInvariant {
-                name: "a".into(),
-                description: "a".into(),
-                expression: "x".into(),
-                kind: InvariantKind::Structural,
-                spans_contracts: vec![],
-                status: VerificationStatus::Violated,
-                auto_inferred: false,
-            },
-        ];
+        let invs = vec![ProtocolInvariant {
+            name: "a".into(),
+            description: "a".into(),
+            expression: "x".into(),
+            kind: InvariantKind::Structural,
+            spans_contracts: vec![],
+            status: VerificationStatus::Violated,
+            auto_inferred: false,
+        }];
         assert_eq!(super::compute_exit_code(&invs), 1);
     }
 
     #[test]
     fn test_compute_exit_code_unknown() {
-        let invs = vec![
-            ProtocolInvariant {
-                name: "a".into(),
-                description: "a".into(),
-                expression: "x".into(),
-                kind: InvariantKind::Structural,
-                spans_contracts: vec![],
-                status: VerificationStatus::Unknown,
-                auto_inferred: false,
-            },
-        ];
+        let invs = vec![ProtocolInvariant {
+            name: "a".into(),
+            description: "a".into(),
+            expression: "x".into(),
+            kind: InvariantKind::Structural,
+            spans_contracts: vec![],
+            status: VerificationStatus::Unknown,
+            auto_inferred: false,
+        }];
         assert_eq!(super::compute_exit_code(&invs), 2);
     }
 
@@ -239,7 +233,10 @@ mod protocol_analysis_tests {
     fn test_contract_role_display() {
         assert_eq!(format!("{}", ContractRole::Token), "Token");
         assert_eq!(format!("{}", ContractRole::Bridge), "Bridge");
-        assert_eq!(format!("{}", ContractRole::Other("Custom".into())), "Custom");
+        assert_eq!(
+            format!("{}", ContractRole::Other("Custom".into())),
+            "Custom"
+        );
     }
 
     #[test]

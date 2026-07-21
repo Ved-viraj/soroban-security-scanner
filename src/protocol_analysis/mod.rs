@@ -17,12 +17,12 @@
 //! - **Phase 7 – Dashboard**: Protocol health monitoring
 //! - **Phase 8 – CLI**: `protocol-verify` command
 
+pub mod adversarial;
 pub mod auto_inference;
 pub mod call_graph;
 pub mod dashboard;
 pub mod manifest;
 pub mod simulation;
-pub mod adversarial;
 
 #[cfg(test)]
 mod tests;
@@ -107,7 +107,8 @@ pub async fn run_protocol_verification(
 
     // 6. Run adversarial exploration (Phase 6)
     let adversarial_config = adversarial::AdversarialAgent::default();
-    let adversarial_report = adversarial::run_adversarial_exploration(&protocol, &adversarial_config)?;
+    let adversarial_report =
+        adversarial::run_adversarial_exploration(&protocol, &adversarial_config)?;
 
     // Merge results from all phases into invariants
     let mut invariants = protocol.invariants.clone();
@@ -117,12 +118,18 @@ pub async fn run_protocol_verification(
         }
     }
     for violation in &simulation_results.violations {
-        if let Some(inv) = invariants.iter_mut().find(|i| i.name == violation.invariant_name) {
+        if let Some(inv) = invariants
+            .iter_mut()
+            .find(|i| i.name == violation.invariant_name)
+        {
             inv.status = VerificationStatus::Violated;
         }
     }
     for exploit in &adversarial_report.exploits_found {
-        if let Some(inv) = invariants.iter_mut().find(|i| i.name == exploit.target_invariant) {
+        if let Some(inv) = invariants
+            .iter_mut()
+            .find(|i| i.name == exploit.target_invariant)
+        {
             inv.status = VerificationStatus::Violated;
         }
     }
@@ -235,11 +242,15 @@ impl ProtocolVerificationReport {
             );
         }
         println!("╠══════════════════════════════════════════════════════╣");
-        println!("║  Simulation: {} steps, {} violations found     ║",
-            self.simulation_results.total_steps, self.simulation_results.violations.len());
+        println!(
+            "║  Simulation: {} steps, {} violations found     ║",
+            self.simulation_results.total_steps,
+            self.simulation_results.violations.len()
+        );
         println!(
             "║  Adversarial: {} rounds, {} exploits found    ║",
-            self.adversarial_report.total_rounds, self.adversarial_report.exploits_found.len()
+            self.adversarial_report.total_rounds,
+            self.adversarial_report.exploits_found.len()
         );
         println!(
             "║  Call Graph: {} nodes, {} edges              ║",
@@ -247,7 +258,10 @@ impl ProtocolVerificationReport {
             self.protocol_call_graph.edges.len()
         );
         println!("╠══════════════════════════════════════════════════════╣");
-        println!("║  Exit code: {}                                        ║", self.exit_code);
+        println!(
+            "║  Exit code: {}                                        ║",
+            self.exit_code
+        );
         println!("╚══════════════════════════════════════════════════════╝");
     }
 

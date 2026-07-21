@@ -154,9 +154,7 @@ pub async fn run_protocol_simulation(
     })
 }
 
-fn initialize_state(
-    protocol: &ProtocolManifest,
-) -> HashMap<String, HashMap<String, f64>> {
+fn initialize_state(protocol: &ProtocolManifest) -> HashMap<String, HashMap<String, f64>> {
     let mut state = HashMap::new();
     for contract in &protocol.contracts {
         let mut vars = HashMap::new();
@@ -209,44 +207,65 @@ fn simulate_operation(
 ) -> (String, Vec<(String, f64)>) {
     let amount: f64 = rng.gen_range(1.0..1000.0);
     match op {
-        OpTemplate::Swap => ("swap".into(), vec![
-            (format!("{}.reserve_x", contract), -amount),
-            (format!("{}.reserve_y", contract), amount * 0.99),
-        ]),
-        OpTemplate::Deposit => ("deposit".into(), vec![
-            (format!("{}.total_deposits", contract), amount),
-        ]),
-        OpTemplate::Borrow => ("borrow".into(), vec![
-            (format!("{}.total_loans", contract), amount),
-        ]),
-        OpTemplate::Repay => ("repay".into(), vec![
-            (format!("{}.total_loans", contract), -amount),
-        ]),
-        OpTemplate::Liquidate => ("liquidate".into(), vec![
-            (format!("{}.collateral_value", contract), -amount * 1.5),
-            (format!("{}.debt", contract), -amount),
-        ]),
-        OpTemplate::Mint => ("mint".into(), vec![
-            (format!("{}.total_supply", contract), amount),
-            (format!("{}.balance_alice", contract), amount),
-        ]),
-        OpTemplate::Burn => ("burn".into(), vec![
-            (format!("{}.total_supply", contract), -amount),
-            (format!("{}.balance_alice", contract), -amount),
-        ]),
-        OpTemplate::Transfer => ("transfer".into(), vec![
-            (format!("{}.balance_alice", contract), -amount),
-            (format!("{}.balance_bob", contract), amount),
-        ]),
-        OpTemplate::Stake => ("stake".into(), vec![
-            (format!("{}.total_staked", contract), amount),
-        ]),
-        OpTemplate::Unstake => ("unstake".into(), vec![
-            (format!("{}.total_staked", contract), -amount),
-        ]),
-        OpTemplate::ClaimRewards => ("claim_rewards".into(), vec![
-            (format!("{}.balance_alice", contract), amount * 0.05),
-        ]),
+        OpTemplate::Swap => (
+            "swap".into(),
+            vec![
+                (format!("{}.reserve_x", contract), -amount),
+                (format!("{}.reserve_y", contract), amount * 0.99),
+            ],
+        ),
+        OpTemplate::Deposit => (
+            "deposit".into(),
+            vec![(format!("{}.total_deposits", contract), amount)],
+        ),
+        OpTemplate::Borrow => (
+            "borrow".into(),
+            vec![(format!("{}.total_loans", contract), amount)],
+        ),
+        OpTemplate::Repay => (
+            "repay".into(),
+            vec![(format!("{}.total_loans", contract), -amount)],
+        ),
+        OpTemplate::Liquidate => (
+            "liquidate".into(),
+            vec![
+                (format!("{}.collateral_value", contract), -amount * 1.5),
+                (format!("{}.debt", contract), -amount),
+            ],
+        ),
+        OpTemplate::Mint => (
+            "mint".into(),
+            vec![
+                (format!("{}.total_supply", contract), amount),
+                (format!("{}.balance_alice", contract), amount),
+            ],
+        ),
+        OpTemplate::Burn => (
+            "burn".into(),
+            vec![
+                (format!("{}.total_supply", contract), -amount),
+                (format!("{}.balance_alice", contract), -amount),
+            ],
+        ),
+        OpTemplate::Transfer => (
+            "transfer".into(),
+            vec![
+                (format!("{}.balance_alice", contract), -amount),
+                (format!("{}.balance_bob", contract), amount),
+            ],
+        ),
+        OpTemplate::Stake => (
+            "stake".into(),
+            vec![(format!("{}.total_staked", contract), amount)],
+        ),
+        OpTemplate::Unstake => (
+            "unstake".into(),
+            vec![(format!("{}.total_staked", contract), -amount)],
+        ),
+        OpTemplate::ClaimRewards => (
+            "claim_rewards".into(),
+            vec![(format!("{}.balance_alice", contract), amount * 0.05)],
+        ),
     }
 }
 
@@ -339,6 +358,9 @@ fn check_invariant(
     // Unrecognized pattern — don't flag as violated, just warn.
     // Returning false would cause false positives for invariants whose
     // DSL we don't parse yet.
-    log::warn!("Unrecognized invariant expression, cannot check: {}", inv.expression);
+    log::warn!(
+        "Unrecognized invariant expression, cannot check: {}",
+        inv.expression
+    );
     true
 }

@@ -64,7 +64,10 @@ fn infer_amm_pool_invariants(
             name: format!("{}__constant_product", contract.name),
             description: "Reserve product must remain constant before/after any non-swap operation"
                 .into(),
-            expression: format!("reserve_x[{}] * reserve_y[{}] == k_constant", contract.name, contract.name),
+            expression: format!(
+                "reserve_x[{}] * reserve_y[{}] == k_constant",
+                contract.name, contract.name
+            ),
             kind: InvariantKind::Economic,
             spans_contracts: vec![contract.name.clone()],
             status: VerificationStatus::Unknown,
@@ -77,7 +80,10 @@ fn infer_amm_pool_invariants(
         ProtocolInvariant {
             name: format!("{}__reserves_non_negative", contract.name),
             description: "Pool reserves must never be negative".into(),
-            expression: format!("reserve_x[{}] >= 0 && reserve_y[{}] >= 0", contract.name, contract.name),
+            expression: format!(
+                "reserve_x[{}] >= 0 && reserve_y[{}] >= 0",
+                contract.name, contract.name
+            ),
             kind: InvariantKind::Structural,
             spans_contracts: vec![contract.name.clone()],
             status: VerificationStatus::Unknown,
@@ -99,7 +105,10 @@ fn infer_lending_pool_invariants(
         ProtocolInvariant {
             name: format!("{}__deposits_gte_loans", contract.name),
             description: "Total deposits must always be >= total outstanding loans".into(),
-            expression: format!("total_deposits[{}] >= total_loans[{}]", contract.name, contract.name),
+            expression: format!(
+                "total_deposits[{}] >= total_loans[{}]",
+                contract.name, contract.name
+            ),
             kind: InvariantKind::Economic,
             spans_contracts: vec![contract.name.clone()],
             status: VerificationStatus::Unknown,
@@ -121,7 +130,10 @@ fn infer_bridge_invariants(
         ProtocolInvariant {
             name: format!("{}__locked_equals_minted", contract.name),
             description: "Tokens locked on chain A must equal tokens minted on chain B".into(),
-            expression: format!("locked[{}_soroban] == minted[{}_counterpart]", contract.name, contract.name),
+            expression: format!(
+                "locked[{}_soroban] == minted[{}_counterpart]",
+                contract.name, contract.name
+            ),
             kind: InvariantKind::Hybrid,
             spans_contracts: vec![contract.name.clone()],
             status: VerificationStatus::Unknown,
@@ -143,7 +155,10 @@ fn infer_governance_invariants(
         ProtocolInvariant {
             name: format!("{}__voting_power_equals_delegated", contract.name),
             description: "Total voting power must equal sum of delegated power".into(),
-            expression: format!("total_voting_power[{}] == sum(delegated_power[{}])", contract.name, contract.name),
+            expression: format!(
+                "total_voting_power[{}] == sum(delegated_power[{}])",
+                contract.name, contract.name
+            ),
             kind: InvariantKind::Structural,
             spans_contracts: vec![contract.name.clone()],
             status: VerificationStatus::Unknown,
@@ -165,7 +180,10 @@ fn infer_token_invariants(
         ProtocolInvariant {
             name: format!("{}__supply_equals_balances", contract.name),
             description: "Total supply must equal the sum of all account balances".into(),
-            expression: format!("total_supply[{}] == sum(balances[{}])", contract.name, contract.name),
+            expression: format!(
+                "total_supply[{}] == sum(balances[{}])",
+                contract.name, contract.name
+            ),
             kind: InvariantKind::Structural,
             spans_contracts: vec![contract.name.clone()],
             status: VerificationStatus::Unknown,
@@ -226,7 +244,10 @@ fn infer_staking_pool_invariants(
         ProtocolInvariant {
             name: format!("{}__staked_equals_balance", contract.name),
             description: "Total staked tokens must equal the pool's token balance".into(),
-            expression: format!("total_staked[{}] == token_balance[{}]", contract.name, contract.name),
+            expression: format!(
+                "total_staked[{}] == token_balance[{}]",
+                contract.name, contract.name
+            ),
             kind: InvariantKind::Structural,
             spans_contracts: vec![contract.name.clone()],
             status: VerificationStatus::Unknown,
