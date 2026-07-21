@@ -140,8 +140,11 @@ impl FlashLoanSimulator {
             asset: lending.borrow_asset.clone(),
         });
 
-        // Profit = value extracted - borrowed_amount - fee
-        let extracted_value = borrowed_amount * 105 / 100; // Simulated 5% profit
+        // FIXME(#444): Compute actual extracted value from pool state changes
+        // rather than a hardcoded 5% profit. The extracted value should be
+        // derived from simulating the full attack sequence against the pool
+        // with updated reserves after each operation.
+        let extracted_value = borrowed_amount * 105 / 100;
         let gross_profit = extracted_value.saturating_sub(total_repay);
         let net_profit = gross_profit as f64; // Simplified
 

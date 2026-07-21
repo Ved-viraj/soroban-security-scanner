@@ -5,7 +5,6 @@
 //! Each strategy is selectable by configuration.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BinaryHeap;
 
 // ── Transaction Sequence ──────────────────────────────────────────
 
@@ -351,13 +350,21 @@ impl MonteCarloTreeSearch {
             }
         }
 
-        let best = if root.visits > 0 {
-            Some(root.state.clone())
-        } else {
-            None
-        };
+        // Select best child based on average reward
+        let best_child = root
+            .children
+            .iter()
+            .max_by(|a, b| {
+                let avg_a = if a.visits > 0 { a.total_reward / a.visits as f64 } else { 0.0 };
+                let avg_b = if b.visits > 0 { b.total_reward / b.visits as f64 } else { 0.0 };
+                avg_a.partial_cmp(&avg_b).unwrap_or(std::cmp::Ordering::Equal)
+            });
 
-        all_sequences.extend(vec![root.state.clone()]);
+        let best = best_child.map(|c| c.state.clone());
+
+        for child in &root.children {
+            all_sequences.push(child.state.clone());
+        }
 
         SearchResult {
             best_sequence: best,

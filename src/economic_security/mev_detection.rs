@@ -104,12 +104,6 @@ impl MevDetector {
 
         // Simulate front-run
         let front_run_out = pool.get_amount_out(front_run_amount, token_in).ok()? as f64;
-        let price_before = if is_buy {
-            pool.spot_price_a_in_b()
-        } else {
-            pool.spot_price_b_in_a()
-        };
-
         // User trade at worse price (after front-run)
         let user_out = pool.get_amount_out(user_trade_amount, token_in).ok()? as f64;
 
@@ -118,7 +112,12 @@ impl MevDetector {
 
         // Calculate profit
         let attacker_profit = back_run_out - front_run_amount as f64;
-        let user_loss = (user_trade_amount as f64 * (1.0 - user_out / (user_trade_amount as f64 * price_before))).abs();
+        let spot_price = if is_buy {
+            pool.spot_price_a_in_b()
+        } else {
+            pool.spot_price_b_in_a()
+        };
+        let user_loss = (user_trade_amount as f64 * (1.0 - user_out / (user_trade_amount as f64 * spot_price))).abs();
 
         let gas_cost = self.base_fee * 3; // Three transactions: front-run, user, back-run
         let is_profitable = attacker_profit > self.min_profit_threshold;
