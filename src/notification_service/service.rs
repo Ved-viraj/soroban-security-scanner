@@ -6,8 +6,8 @@ use crate::notification_service::{
     tracking::{DeliveryTracker, InMemoryBackend, StorageBackend},
     types::{
         NotificationChannel, NotificationMessage, NotificationPriority, NotificationResult,
-        ProviderConfig, ProviderError, Recipient, ServiceError, TemplateContext, TemplateError,
-        TrackingError,
+        ProviderConfig, ProviderError, Recipient, RenderedTemplate, ServiceError, TemplateContext,
+        TemplateError, TemplateInfo, TrackingError,
     },
 };
 use async_trait::async_trait;
@@ -231,6 +231,25 @@ impl NotificationService {
             .into_iter()
             .cloned()
             .collect())
+    }
+
+    /// Render a template preview with the given context.
+    /// This allows admins to preview a template before sending it to real users.
+    pub async fn render_preview(
+        &self,
+        template_name: &str,
+        context: TemplateContext,
+    ) -> Result<RenderedTemplate, ServiceError> {
+        let template_manager = self.template_manager.read().await;
+        template_manager
+            .render_preview(template_name, &context)
+            .map_err(ServiceError::TemplateError)
+    }
+
+    /// List all templates with their metadata for the admin template listing endpoint.
+    pub async fn list_template_info(&self) -> Vec<TemplateInfo> {
+        let template_manager = self.template_manager.read().await;
+        template_manager.list_template_info()
     }
 
     /// Configure a provider

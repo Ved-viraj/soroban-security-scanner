@@ -264,3 +264,27 @@ pub struct NotificationTemplate {
     pub version: u32,
     pub active: bool,
 }
+
+/// Rendered template preview result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderedTemplate {
+    pub subject: Option<String>,
+    pub plain_text_body: String,
+    pub html_body: Option<String>,
+    pub template_id: String,
+    pub template_name: String,
+}
+
+/// Template listing entry with metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateInfo {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub supported_channels: Vec<NotificationChannel>,
+    pub variables: Vec<TemplateVariable>,
+    pub version: u32,
+    pub active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}

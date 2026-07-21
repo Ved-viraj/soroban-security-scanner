@@ -429,6 +429,91 @@ match service.send_notification(message, recipient).await {
 }
 ```
 
+## Template Preview
+
+### Overview
+
+The Template Preview feature allows administrators to preview rendered notification templates before they are sent to real users. This dramatically speeds up template iteration by eliminating the need for a full deploy-and-test cycle when making wording changes, updating branding, or creating new notification types.
+
+### Backend API
+
+#### `render_preview()`
+
+The `TemplateManager` provides a `render_preview(template_name: &str, context: TemplateContext) -> RenderedTemplate` method that:
+- Renders the template with the provided context
+- Returns the subject (for email templates) and plain-text body
+- Returns an HTML body for templates that support the Email channel
+
+```rust
+use soroban_security_scanner::notification_service::*;
+
+let service = NotificationService::new()?;
+
+let mut context = TemplateContext::new();
+context.insert("user_name".to_string(), "Alice".to_string());
+context.insert("contract_name".to_string(), "TokenContract".to_string());
+context.insert("severity".to_string(), "Critical".to_string());
+
+let preview = service.render_preview("vulnerability_alert", context).await?;
+println!("Subject: {:?}", preview.subject);
+println!("Plain text body: {}", preview.plain_text_body);
+if let Some(html) = preview.html_body {
+    println!("HTML body generated");
+}
+```
+
+#### `list_template_info()`
+
+The `TemplateManager` also provides `list_template_info() -> Vec<TemplateInfo>` which returns metadata for all registered templates including their names, descriptions, variable schemas, supported channels, and version information.
+
+#### Admin Endpoints
+
+- `POST /api/v1/admin/notifications/preview` — Accepts a template name and JSON context, returns rendered subject, plain-text body, and HTML body
+- `GET /api/v1/admin/notifications/templates` — Lists all available templates with metadata
+
+### Frontend Component
+
+The `TemplatePreview` component (`frontend/components/notifications/TemplatePreview.tsx`) provides:
+- **Template selector dropdown** — Browse all available templates with version, channel, and status info
+- **JSON context editor** — Edit the template context as JSON with syntax highlighting for placeholders
+- **Variable sidebar** — Shows all available variables with type, required status, and fill state
+- **Live preview panel** — Renders the output with tab switching between plain text and HTML views
+- **HTML iframe preview** — Sanboxed HTML rendering for email templates
+- **Fill defaults / Clear** — Quick actions to populate or reset context
+- **Copy config** — Copies the template ID and context as JSON for API use
+
+### Using the Component
+
+```tsx
+import { TemplatePreview } from '@/components/notifications/TemplatePreview';
+
+function AdminPanel() {
+  const [templates, setTemplates] = useState<TemplateInfo[]>([]);
+
+  const handlePreview = async (templateId: string, context: TemplateContext) => {
+    const response = await fetch('/api/v1/admin/notifications/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template_name: templateId, context }),
+    });
+    return response.json();
+  };
+
+  return (
+    <TemplatePreview
+      templates={templates}
+      onPreview={handlePreview}
+      onFetchTemplates={async () => {
+        const res = await fetch('/api/v1/admin/notifications/templates');
+        const data = await res.json();
+        setTemplates(data.templates);
+        return data.templates;
+      }}
+    />
+  );
+}
+```
+
 ## Testing
 
 Run the notification service tests:
@@ -439,6 +524,10 @@ cargo test notification_service
 
 The test suite covers:
 - Template management and rendering
+- Template preview rendering for all channel types (Email, SMS, Push, In-App)
+- Template info listing with metadata
+- Missing variable validation
+- Preview for non-existent templates
 - Multi-channel notification delivery
 - Priority and quiet hours handling
 - Delivery tracking
