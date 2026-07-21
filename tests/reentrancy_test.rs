@@ -1,6 +1,8 @@
 use soroban_sdk::{Address, Env, Symbol};
 use soroban_security_scanner::escrow::EscrowClient;
-use soroban_security_scanner::escrow::{Escrow, EscrowData, MINIMUM_TIMEOUT_LEDGERS, DEFAULT_TIMEOUT_LEDGERS};
+use soroban_security_scanner::escrow::{
+    Escrow, EscrowData, DEFAULT_TIMEOUT_LEDGERS, MINIMUM_TIMEOUT_LEDGERS,
+};
 
 #[test]
 fn test_reentrancy_security() {
@@ -138,10 +140,7 @@ fn test_cannot_refund_before_timeout() {
     let result = std::panic::catch_unwind(|| {
         client.refund(&depositor);
     });
-    assert!(
-        result.is_err(),
-        "Refund before timeout should fail"
-    );
+    assert!(result.is_err(), "Refund before timeout should fail");
 }
 
 #[test]
@@ -164,10 +163,7 @@ fn test_cannot_cancel_after_release() {
     let result = std::panic::catch_unwind(|| {
         client.cancel(&depositor);
     });
-    assert!(
-        result.is_err(),
-        "Cancel after release should fail"
-    );
+    assert!(result.is_err(), "Cancel after release should fail");
 }
 
 #[test]
@@ -190,10 +186,7 @@ fn test_cannot_refund_after_release() {
     let result = std::panic::catch_unwind(|| {
         client.refund(&depositor);
     });
-    assert!(
-        result.is_err(),
-        "Refund after release should fail"
-    );
+    assert!(result.is_err(), "Refund after release should fail");
 }
 
 #[test]

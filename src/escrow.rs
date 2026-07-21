@@ -56,7 +56,10 @@ impl Escrow {
     ) {
         // Validate minimum timeout
         if timeout_ledgers < MINIMUM_TIMEOUT_LEDGERS {
-            panic!("Timeout must be at least {} ledgers", MINIMUM_TIMEOUT_LEDGERS);
+            panic!(
+                "Timeout must be at least {} ledgers",
+                MINIMUM_TIMEOUT_LEDGERS
+            );
         }
 
         let depositor = env.current_contract_address();
