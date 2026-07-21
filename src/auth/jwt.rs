@@ -24,6 +24,8 @@ pub enum JwtError {
     InvalidToken(#[from] jsonwebtoken::errors::Error),
     #[error("Token expired")]
     Expired,
+    #[error("Token revoked")]
+    Revoked,
     #[error("Invalid claims")]
     InvalidClaims,
     #[error("Encoding error: {0}")]
@@ -32,12 +34,17 @@ pub enum JwtError {
     Decoding(String),
 }
 
+use crate::auth::token_revocation::TokenRevocationList;
+use std::sync::Arc;
+
 pub struct JwtService {
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
     issuer: String,
     audience: String,
     algorithm: Algorithm,
+    /// Token revocation list for force-invalidation (Issue #428)
+    revocation_list: Arc<TokenRevocationList>,
 }
 
 impl JwtService {
@@ -48,6 +55,7 @@ impl JwtService {
             issuer,
             audience,
             algorithm: Algorithm::HS256,
+            revocation_list: Arc::new(TokenRevocationList::new()),
         }
     }
 
@@ -60,6 +68,7 @@ impl JwtService {
             issuer,
             audience,
             algorithm: Algorithm::RS256,
+            revocation_list: Arc::new(TokenRevocationList::new()),
         }
     }
 
@@ -131,6 +140,12 @@ impl JwtService {
                 _ => JwtError::InvalidToken(e),
             })?;
 
+        // Check if token has been revoked (Issue #428)
+        // This allows force-invalidation of JWTs on password change or account compromise
+        if self.revocation_list.is_revoked(&token_data.claims.jti) {
+            return Err(JwtError::Revoked);
+        }
+
         Ok(token_data.claims)
     }
 
@@ -191,6 +206,31 @@ impl JwtService {
 
         // Generate new access token
         self.generate_token(user_id, email, role, permissions, expires_in_hours)
+    }
+
+    /// Revoke a single JWT by its jti (Issue #428)
+    pub fn revoke_token(&self, jti: &str, user_id: &str, exp: i64) {
+        use chrono::TimeZone;
+        let expiry = chrono::Utc.timestamp_opt(exp, 0).unwrap();
+        self.revocation_list.revoke_token(jti, user_id, expiry);
+    }
+
+    /// Revoke ALL tokens for a user (Issue #428)
+    /// Called on password change or account compromise.
+    pub fn revoke_all_user_tokens(&self, user_id: &str) -> Result<usize, JwtError> {
+        self.revocation_list
+            .revoke_all_user_tokens(user_id)
+            .map_err(|e| JwtError::Decoding(e.to_string()))
+    }
+
+    /// Prune expired entries from the revocation list (Issue #428)
+    pub fn prune_expired_revocations(&self) -> usize {
+        self.revocation_list.prune_expired()
+    }
+
+    /// Get a reference to the token revocation list (Issue #428)
+    pub fn revocation_list(&self) -> &TokenRevocationList {
+        &self.revocation_list
     }
 }
 
