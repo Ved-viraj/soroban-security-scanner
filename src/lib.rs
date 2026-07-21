@@ -142,11 +142,6 @@ pub mod time_travel_debugger;
 #[cfg(feature = "broken-modules")]
 pub mod wallet;
 
-// Cross-layer vulnerability propagation detection (#447).
-// Traces vulnerabilities through the Rust → WASM → Soroban VM stack.
-#[cfg(feature = "broken-modules")]
-pub mod cross_layer_analysis;
-
 // Economic exploit simulation framework (#444).
 // Models DeFi protocols and searches for profitable attack sequences:
 // flash loans, oracle manipulation, and MEV detection.
@@ -223,25 +218,6 @@ pub use wallet::{
     CreateWalletRequest, ImportWalletRequest, InMemoryWalletStore, RestoreWalletRequest, Wallet,
     WalletBalance, WalletError, WalletExport, WalletService, WalletStatus, WalletStore,
     WalletSyncRecord, WalletType,
-};
-
-#[cfg(feature = "broken-modules")]
-pub use cross_layer_analysis::{
-    compilation_mapping::{
-        CompilationChainModel, CompilationMapping, MirToWasmMapping, RustPattern, WasmPattern,
-    },
-    cross_layer_ir::{CompilationLayer, CrossLayerIr, InstructionMapping},
-    optimization_sensitivity::{
-        OptimizationLevel, OptimizationSensitiveFinding, OptimizationSensitivityAnalyzer,
-    },
-    propagation::{CrossLayerPropagationEngine, PropagatedFinding},
-    report::{
-        ConfidenceLevel, CrossLayerReport, CrossLayerReportRow, FindingSeverity as CrossLayerSeverity,
-        RustFinding, VmImpact, WasmManifestation,
-    },
-    rust_analyzer::{RustAnalyzer, RustFinding as RustAnalysisFinding, RustFindingKind},
-    vm_analyzer::{HostFunctionCall, VmAnalyzer, VmFinding, VmFindingKind},
-    wasm_analyzer::{WasmAnalyzer, WasmFinding as WasmAnalysisFinding, WasmFindingKind},
 };
 
 #[cfg(feature = "broken-modules")]
