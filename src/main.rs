@@ -61,6 +61,14 @@ enum Commands {
         /// Verbose output
         #[arg(short, long)]
         verbose: bool,
+
+        /// Enable incremental scanning (only scan changed files)
+        #[arg(long)]
+        incremental: bool,
+
+        /// Override incremental mode and force a full scan
+        #[arg(long)]
+        force_full: bool,
     },
 
     /// Scan for invariant violations
@@ -84,6 +92,14 @@ enum Commands {
         /// Verbose output
         #[arg(short, long)]
         verbose: bool,
+
+        /// Enable incremental scanning (only scan changed files)
+        #[arg(long)]
+        incremental: bool,
+
+        /// Override incremental mode and force a full scan
+        #[arg(long)]
+        force_full: bool,
     },
 
     /// Run comprehensive scan (security + invariants)
@@ -107,6 +123,14 @@ enum Commands {
         /// Verbose output
         #[arg(short, long)]
         verbose: bool,
+
+        /// Enable incremental scanning (only scan changed files)
+        #[arg(long)]
+        incremental: bool,
+
+        /// Override incremental mode and force a full scan
+        #[arg(long)]
+        force_full: bool,
     },
 
     /// Generate default configuration file
@@ -625,21 +649,51 @@ fn main() -> Result<()> {
             output,
             config,
             verbose,
-        } => run_security_scan(path, format, output, config, verbose),
+            incremental,
+            force_full,
+        } => run_security_scan(
+            path,
+            format,
+            output,
+            config,
+            verbose,
+            incremental,
+            force_full,
+        ),
         Commands::Invariants {
             path,
             format,
             output,
             config,
             verbose,
-        } => run_invariant_scan(path, format, output, config, verbose),
+            incremental,
+            force_full,
+        } => run_invariant_scan(
+            path,
+            format,
+            output,
+            config,
+            verbose,
+            incremental,
+            force_full,
+        ),
         Commands::Scan {
             path,
             format,
             output,
             config,
             verbose,
-        } => run_comprehensive_scan(path, format, output, config, verbose),
+            incremental,
+            force_full,
+        } => run_comprehensive_scan(
+            path,
+            format,
+            output,
+            config,
+            verbose,
+            incremental,
+            force_full,
+        ),
         Commands::Init { path } => generate_config(path),
         Commands::ListChecks { severity } => list_vulnerability_checks(severity),
         Commands::ListInvariants { severity } => list_invariant_rules(severity),
@@ -683,8 +737,21 @@ fn run_security_scan(
     output: Option<PathBuf>,
     config_path: Option<PathBuf>,
     verbose: bool,
+    incremental: bool,
+    force_full: bool,
 ) -> Result<()> {
-    println!("{}", "🔍 Starting Stellar Security Scan".bold().cyan());
+    use stellar_security_scanner::incremental_scan;
+
+    if incremental && !force_full {
+        println!(
+            "{}",
+            "🔍 Starting Stellar Security Scan (incremental)"
+                .bold()
+                .cyan()
+        );
+    } else {
+        println!("{}", "🔍 Starting Stellar Security Scan".bold().cyan());
+    }
 
     let config = load_config(config_path)?;
     let emergency_stop = EmergencyStop::new()?;
@@ -697,18 +764,128 @@ fn run_security_scan(
             println!("Output file: {}", output_path.display());
         }
         println!("🛑 Emergency stop system enabled");
+        if incremental {
+            println!("⚡ Incremental scan mode enabled");
+        }
+        if force_full {
+            println!("🔄 Force full scan mode enabled");
+        }
+    }
+
+    // Warn if both --incremental and --force-full are specified
+    if incremental && force_full {
+        println!(
+            "{}",
+            "⚠️  --force-full overrides --incremental, performing full scan".yellow()
+        );
     }
 
     let start_time = Instant::now();
-    let results = scanner.scan_directory(&path)?;
-    let scan_duration = start_time.elapsed().as_millis() as u64;
+
+    // Handle incremental scan setup
+    let (results, scan_duration, files_scanned, total_files, estimated_full) =
+        if incremental && !force_full {
+            // Load previous manifest
+            let prev_manifest = incremental_scan::ScanManifest::load(&path)?;
+            // Collect current file info
+            let file_info = incremental_scan::collect_file_info(&path)?;
+
+            match prev_manifest {
+                Some(manifest) => {
+                    let plan = manifest.compute_affected_files(&file_info);
+                    let total = plan.total_files;
+                    let est = plan.estimated_full_scan_seconds;
+                    let to_scan = plan.files_to_scan.len();
+
+                    if verbose {
+                        println!(
+                            "Incremental: scanning {}/{} files ({} skipped)",
+                            to_scan,
+                            total,
+                            plan.files_to_skip.len()
+                        );
+                    }
+
+                    let results = scanner.scan_directory_incremental(&path, &plan.files_to_scan)?;
+                    let scan_duration = start_time.elapsed().as_millis() as u64;
+
+                    // Update and save manifest
+                    let mut new_manifest = manifest;
+                    new_manifest.update(&plan.files_to_scan, &file_info, scan_duration);
+                    new_manifest.save(&path)?;
+
+                    (results, scan_duration, to_scan, total, est)
+                }
+                None => {
+                    // No previous manifest, do full scan but create manifest
+                    if verbose {
+                        println!("No previous scan manifest found, performing full scan");
+                    }
+                    let results = scanner.scan_directory(&path)?;
+                    let scan_duration = start_time.elapsed().as_millis() as u64;
+
+                    let mut manifest = incremental_scan::ScanManifest::new();
+                    manifest.update(
+                        &file_info.keys().cloned().collect(),
+                        &file_info,
+                        scan_duration,
+                    );
+                    manifest.save(&path)?;
+
+                    let total = results.len();
+                    (results, scan_duration, total, total, total as f64 * 5.0)
+                }
+            }
+        } else {
+            // Full scan
+            if force_full {
+                // Delete old manifest to start fresh
+                let _ = incremental_scan::ScanManifest::delete(&path);
+                if verbose {
+                    println!("Force full scan: previous manifest deleted");
+                }
+            }
+            let results = scanner.scan_directory(&path)?;
+            let scan_duration = start_time.elapsed().as_millis() as u64;
+
+            // Save manifest for future incremental scans
+            if incremental || force_full {
+                let file_info = incremental_scan::collect_file_info(&path)?;
+                let mut manifest = incremental_scan::ScanManifest::new();
+                manifest.update(
+                    &file_info.keys().cloned().collect(),
+                    &file_info,
+                    scan_duration,
+                );
+                manifest.save(&path)?;
+            }
+
+            let total = results.len();
+            (results, scan_duration, total, total, total as f64 * 5.0)
+        };
+
+    let scan_duration_secs = scan_duration as f64 / 1000.0;
+
+    // Print incremental scan summary
+    if incremental && !force_full {
+        println!(
+            "{}",
+            incremental_scan::format_scan_summary(
+                files_scanned,
+                total_files.saturating_sub(files_scanned),
+                total_files,
+                scan_duration_secs,
+                estimated_full
+            )
+            .green()
+        );
+    }
 
     // Check if scan was stopped
     if scanner.emergency_stop.is_stopped() {
         println!("⚠️  Scan was stopped due to emergency stop condition");
         println!("📊 Partial results: {} files scanned", results.len());
 
-        // Generate partial report if we have results
         if !results.is_empty() {
             let analysis = AnalysisResult::new(results, scan_duration);
             let report_format = parse_report_format(&format)?;
@@ -723,15 +900,12 @@ fn run_security_scan(
         println!("Scanned {} files in {}ms", results.len(), scan_duration);
     }
 
-    // Combine results for analysis
     let analysis = AnalysisResult::new(results, scan_duration);
 
-    // Generate report
     let report_format = parse_report_format(&format)?;
     let report = SecurityReport::new(report_format);
     report.generate(&analysis, output.as_deref())?;
 
-    // Exit with error code if critical issues found
     if analysis.risk_score.risk_level == stellar_security_scanner::analysis::RiskLevel::Critical {
         std::process::exit(1);
     }
@@ -745,8 +919,21 @@ fn run_invariant_scan(
     output: Option<PathBuf>,
     config_path: Option<PathBuf>,
     verbose: bool,
+    incremental: bool,
+    force_full: bool,
 ) -> Result<()> {
-    println!("{}", "🔒 Starting Stellar Invariant Scan".bold().cyan());
+    use stellar_security_scanner::incremental_scan;
+
+    if incremental && !force_full {
+        println!(
+            "{}",
+            "🔒 Starting Stellar Invariant Scan (incremental)"
+                .bold()
+                .cyan()
+        );
+    } else {
+        println!("{}", "🔒 Starting Stellar Invariant Scan".bold().cyan());
+    }
 
     let config = load_config(config_path)?;
     let scanner = InvariantScanner::new()?;
@@ -760,17 +947,88 @@ fn run_invariant_scan(
     }
 
     let start_time = Instant::now();
-    let results = scanner.scan_directory(&path)?;
-    let scan_duration = start_time.elapsed().as_millis() as u64;
+
+    let (results, scan_duration, files_scanned, total_files, estimated_full) =
+        if incremental && !force_full {
+            let prev_manifest = incremental_scan::ScanManifest::load(&path)?;
+            let file_info = incremental_scan::collect_file_info(&path)?;
+
+            match prev_manifest {
+                Some(manifest) => {
+                    let plan = manifest.compute_affected_files(&file_info);
+                    let total = plan.total_files;
+                    let est = plan.estimated_full_scan_seconds;
+                    let to_scan = plan.files_to_scan.len();
+
+                    let results = scanner.scan_directory_incremental(&path, &plan.files_to_scan)?;
+                    let scan_duration = start_time.elapsed().as_millis() as u64;
+
+                    let mut new_manifest = manifest;
+                    new_manifest.update(&plan.files_to_scan, &file_info, scan_duration);
+                    new_manifest.save(&path)?;
+
+                    (results, scan_duration, to_scan, total, est)
+                }
+                None => {
+                    let results = scanner.scan_directory(&path)?;
+                    let scan_duration = start_time.elapsed().as_millis() as u64;
+
+                    let mut manifest = incremental_scan::ScanManifest::new();
+                    manifest.update(
+                        &file_info.keys().cloned().collect(),
+                        &file_info,
+                        scan_duration,
+                    );
+                    manifest.save(&path)?;
+
+                    let total = results.len();
+                    (results, scan_duration, total, total, total as f64 * 5.0)
+                }
+            }
+        } else {
+            if force_full {
+                let _ = incremental_scan::ScanManifest::delete(&path);
+            }
+            let results = scanner.scan_directory(&path)?;
+            let scan_duration = start_time.elapsed().as_millis() as u64;
+
+            if incremental || force_full {
+                let file_info = incremental_scan::collect_file_info(&path)?;
+                let mut manifest = incremental_scan::ScanManifest::new();
+                manifest.update(
+                    &file_info.keys().cloned().collect(),
+                    &file_info,
+                    scan_duration,
+                );
+                manifest.save(&path)?;
+            }
+
+            let total = results.len();
+            (results, scan_duration, total, total, total as f64 * 5.0)
+        };
+
+    let scan_duration_secs = scan_duration as f64 / 1000.0;
+
+    if incremental && !force_full {
+        println!(
+            "{}",
+            incremental_scan::format_scan_summary(
+                files_scanned,
+                total_files.saturating_sub(files_scanned),
+                total_files,
+                scan_duration_secs,
+                estimated_full
+            )
+            .green()
+        );
+    }
 
     if verbose {
         println!("Scanned {} files in {}ms", results.len(), scan_duration);
     }
 
-    // Combine results for analysis
     let analysis = AnalysisResult::new(results, scan_duration);
 
-    // Generate report
     let report_format = parse_report_format(&format)?;
     let report = SecurityReport::new(report_format);
     report.generate(&analysis, output.as_deref())?;
@@ -784,13 +1042,26 @@ fn run_comprehensive_scan(
     output: Option<PathBuf>,
     config_path: Option<PathBuf>,
     verbose: bool,
+    incremental: bool,
+    force_full: bool,
 ) -> Result<()> {
-    println!(
-        "{}",
-        "🚀 Starting Comprehensive Stellar Security & Invariant Scan"
-            .bold()
-            .cyan()
-    );
+    use stellar_security_scanner::incremental_scan;
+
+    if incremental && !force_full {
+        println!(
+            "{}",
+            "🚀 Starting Comprehensive Stellar Security & Invariant Scan (incremental)"
+                .bold()
+                .cyan()
+        );
+    } else {
+        println!(
+            "{}",
+            "🚀 Starting Comprehensive Stellar Security & Invariant Scan"
+                .bold()
+                .cyan()
+        );
+    }
 
     let config = load_config(config_path)?;
     let security_scanner = SecurityScanner::new()?;
@@ -802,15 +1073,115 @@ fn run_comprehensive_scan(
         if let Some(ref output_path) = output {
             println!("Output file: {}", output_path.display());
         }
+        if incremental {
+            println!("⚡ Incremental scan mode enabled");
+        }
     }
 
     let start_time = Instant::now();
 
-    // Run both scans
-    let security_results = security_scanner.scan_directory(&path)?;
-    let invariant_results = invariant_scanner.scan_directory(&path)?;
+    let (
+        security_results,
+        invariant_results,
+        scan_duration,
+        files_scanned,
+        total_files,
+        estimated_full,
+    ) = if incremental && !force_full {
+        let prev_manifest = incremental_scan::ScanManifest::load(&path)?;
+        let file_info = incremental_scan::collect_file_info(&path)?;
 
-    let scan_duration = start_time.elapsed().as_millis() as u64;
+        match prev_manifest {
+            Some(manifest) => {
+                let plan = manifest.compute_affected_files(&file_info);
+                let total = plan.total_files;
+                let est = plan.estimated_full_scan_seconds;
+                let to_scan = plan.files_to_scan.len();
+
+                let security_results =
+                    security_scanner.scan_directory_incremental(&path, &plan.files_to_scan)?;
+                let invariant_results =
+                    invariant_scanner.scan_directory_incremental(&path, &plan.files_to_scan)?;
+                let scan_duration = start_time.elapsed().as_millis() as u64;
+
+                let mut new_manifest = manifest;
+                new_manifest.update(&plan.files_to_scan, &file_info);
+                new_manifest.save(&path)?;
+
+                (
+                    security_results,
+                    invariant_results,
+                    scan_duration,
+                    to_scan,
+                    total,
+                    est,
+                )
+            }
+            None => {
+                let security_results = security_scanner.scan_directory(&path)?;
+                let invariant_results = invariant_scanner.scan_directory(&path)?;
+                let scan_duration = start_time.elapsed().as_millis() as u64;
+
+                let mut manifest = incremental_scan::ScanManifest::new();
+                manifest.update(
+                    &file_info.keys().cloned().collect(),
+                    &file_info,
+                    scan_duration,
+                );
+                manifest.save(&path)?;
+
+                let total = security_results.len();
+                (
+                    security_results,
+                    invariant_results,
+                    scan_duration,
+                    total,
+                    total,
+                    total as f64 * 5.0,
+                )
+            }
+        }
+    } else {
+        if force_full {
+            let _ = incremental_scan::ScanManifest::delete(&path);
+        }
+        let security_results = security_scanner.scan_directory(&path)?;
+        let invariant_results = invariant_scanner.scan_directory(&path)?;
+        let scan_duration = start_time.elapsed().as_millis() as u64;
+
+        if incremental || force_full {
+            let file_info = incremental_scan::collect_file_info(&path)?;
+            let mut manifest = incremental_scan::ScanManifest::new();
+            manifest.update(&file_info.keys().cloned().collect(), &file_info);
+            manifest.save(&path)?;
+        }
+
+        let total = security_results.len();
+        (
+            security_results,
+            invariant_results,
+            scan_duration,
+            total,
+            total,
+            total as f64 * 5.0,
+        )
+    };
+
+    let scan_duration_secs = scan_duration as f64 / 1000.0;
+
+    if incremental && !force_full {
+        println!(
+            "{}",
+            incremental_scan::format_scan_summary(
+                files_scanned,
+                total_files.saturating_sub(files_scanned),
+                total_files,
+                scan_duration_secs,
+                estimated_full
+            )
+            .green()
+        );
+    }
 
     if verbose {
         println!("Security scan: {} files", security_results.len());
@@ -818,7 +1189,6 @@ fn run_comprehensive_scan(
         println!("Total scan time: {}ms", scan_duration);
     }
 
-    // Combine results
     let mut combined_results = security_results;
     for invariant_result in invariant_results {
         if let Some(security_result) = combined_results
@@ -838,12 +1208,10 @@ fn run_comprehensive_scan(
 
     let analysis = AnalysisResult::new(combined_results, scan_duration);
 
-    // Generate report
     let report_format = parse_report_format(&format)?;
     let report = SecurityReport::new(report_format);
     report.generate(&analysis, output.as_deref())?;
 
-    // Exit with error code if critical issues found
     if analysis.risk_score.risk_level == stellar_security_scanner::analysis::RiskLevel::Critical {
         std::process::exit(1);
     }
