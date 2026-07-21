@@ -490,4 +490,306 @@ mod tests {
         let deleted = service.get_template("delete_test").await.unwrap();
         assert!(deleted.is_none());
     }
+
+    #[tokio::test]
+    async fn test_template_preview_rendering() {
+        let service = NotificationService::new().unwrap();
+
+        // Register a test template
+        let template = NotificationTemplate {
+            id: "preview_test".to_string(),
+            name: "Preview Test Template".to_string(),
+            description: Some("A template for testing preview rendering".to_string()),
+            subject_template: Some("Scan Results for {{contract_name}}".to_string()),
+            body_template: "Hello {{user_name}},\n\nYour scan of {{contract_name}} found {{vuln_count}} vulnerabilities.\n\nSeverity: {{severity}}.".to_string(),
+            supported_channels: vec![NotificationChannel::Email, NotificationChannel::InApp],
+            default_priority: NotificationPriority::High,
+            variables: vec![
+                TemplateVariable {
+                    name: "user_name".to_string(),
+                    description: Some("User name".to_string()),
+                    required: true,
+                    default_value: None,
+                    variable_type: VariableType::String,
+                },
+                TemplateVariable {
+                    name: "contract_name".to_string(),
+                    description: Some("Contract name".to_string()),
+                    required: true,
+                    default_value: None,
+                    variable_type: VariableType::String,
+                },
+                TemplateVariable {
+                    name: "vuln_count".to_string(),
+                    description: Some("Vulnerability count".to_string()),
+                    required: true,
+                    default_value: None,
+                    variable_type: VariableType::Number,
+                },
+                TemplateVariable {
+                    name: "severity".to_string(),
+                    description: Some("Severity level".to_string()),
+                    required: true,
+                    default_value: None,
+                    variable_type: VariableType::String,
+                },
+            ],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            active: true,
+        };
+
+        service.add_template(template).await.unwrap();
+
+        // Build context
+        let mut context = TemplateContext::new();
+        context.insert("user_name".to_string(), "Alice".to_string());
+        context.insert("contract_name".to_string(), "TokenContract".to_string());
+        context.insert("vuln_count".to_string(), "5".to_string());
+        context.insert("severity".to_string(), "Critical".to_string());
+
+        // Render preview
+        let result = service.render_preview("preview_test", context).await;
+
+        assert!(result.is_ok());
+        let preview = result.unwrap();
+
+        // Verify rendered output
+        assert_eq!(preview.template_id, "preview_test");
+        assert_eq!(preview.template_name, "Preview Test Template");
+        assert!(preview.subject.is_some());
+        assert!(preview.subject.unwrap().contains("TokenContract"));
+        assert!(preview.plain_text_body.contains("Alice"));
+        assert!(preview.plain_text_body.contains("TokenContract"));
+        assert!(preview.plain_text_body.contains("5"));
+        assert!(preview.plain_text_body.contains("Critical"));
+
+        // Email templates should have HTML body
+        assert!(preview.html_body.is_some());
+        let html = preview.html_body.unwrap();
+        assert!(html.contains("<!DOCTYPE html>"));
+        assert!(html.contains("Alice"));
+        assert!(html.contains("TokenContract"));
+    }
+
+    #[tokio::test]
+    async fn test_template_preview_non_email_channel() {
+        let service = NotificationService::new().unwrap();
+
+        // Register an SMS-only template (no HTML needed)
+        let template = NotificationTemplate {
+            id: "sms_preview_test".to_string(),
+            name: "SMS Preview Test".to_string(),
+            description: None,
+            subject_template: None,
+            body_template: "{{alert_type}}: {{message}}".to_string(),
+            supported_channels: vec![NotificationChannel::SMS],
+            default_priority: NotificationPriority::High,
+            variables: vec![
+                TemplateVariable {
+                    name: "alert_type".to_string(),
+                    description: None,
+                    required: true,
+                    default_value: None,
+                    variable_type: VariableType::String,
+                },
+                TemplateVariable {
+                    name: "message".to_string(),
+                    description: None,
+                    required: true,
+                    default_value: None,
+                    variable_type: VariableType::String,
+                },
+            ],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            active: true,
+        };
+
+        service.add_template(template).await.unwrap();
+
+        let mut context = TemplateContext::new();
+        context.insert("alert_type".to_string(), "CRITICAL".to_string());
+        context.insert(
+            "message".to_string(),
+            "Reentrancy vulnerability detected".to_string(),
+        );
+
+        let result = service.render_preview("sms_preview_test", context).await;
+
+        assert!(result.is_ok());
+        let preview = result.unwrap();
+
+        // SMS-only templates should NOT have HTML body
+        assert!(preview.html_body.is_none());
+        assert!(preview.plain_text_body.contains("CRITICAL"));
+        assert!(preview.plain_text_body.contains("Reentrancy"));
+    }
+
+    #[tokio::test]
+    async fn test_template_preview_missing_variable() {
+        let service = NotificationService::new().unwrap();
+
+        let template = NotificationTemplate {
+            id: "missing_var_test".to_string(),
+            name: "Missing Variable Test".to_string(),
+            description: None,
+            subject_template: None,
+            body_template: "Hello {{name}}, your scan {{scan_id}} is {{status}}.".to_string(),
+            supported_channels: vec![NotificationChannel::Email],
+            default_priority: NotificationPriority::Normal,
+            variables: vec![
+                TemplateVariable {
+                    name: "name".to_string(),
+                    description: None,
+                    required: true,
+                    default_value: None,
+                    variable_type: VariableType::String,
+                },
+                TemplateVariable {
+                    name: "scan_id".to_string(),
+                    description: None,
+                    required: true,
+                    default_value: None,
+                    variable_type: VariableType::String,
+                },
+                TemplateVariable {
+                    name: "status".to_string(),
+                    description: None,
+                    required: true,
+                    default_value: None,
+                    variable_type: VariableType::String,
+                },
+            ],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            active: true,
+        };
+
+        service.add_template(template).await.unwrap();
+
+        // Missing required variable "status"
+        let mut context = TemplateContext::new();
+        context.insert("name".to_string(), "Bob".to_string());
+        context.insert("scan_id".to_string(), "scan_456".to_string());
+
+        let result = service.render_preview("missing_var_test", context).await;
+
+        // Should fail due to missing required variable
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_template_info() {
+        let service = NotificationService::new().unwrap();
+
+        // Add two templates
+        let template1 = NotificationTemplate {
+            id: "info_test_1".to_string(),
+            name: "Info Test 1".to_string(),
+            description: Some("First test template".to_string()),
+            subject_template: None,
+            body_template: "Template 1 body".to_string(),
+            supported_channels: vec![NotificationChannel::Email],
+            default_priority: NotificationPriority::Normal,
+            variables: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            active: true,
+        };
+
+        let template2 = NotificationTemplate {
+            id: "info_test_2".to_string(),
+            name: "Info Test 2".to_string(),
+            description: None,
+            subject_template: None,
+            body_template: "Template 2 body".to_string(),
+            supported_channels: vec![NotificationChannel::SMS, NotificationChannel::InApp],
+            default_priority: NotificationPriority::Low,
+            variables: vec![TemplateVariable {
+                name: "test_var".to_string(),
+                description: Some("A test variable".to_string()),
+                required: false,
+                default_value: Some("default".to_string()),
+                variable_type: VariableType::String,
+            }],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 2,
+            active: true,
+        };
+
+        service.add_template(template1).await.unwrap();
+        service.add_template(template2).await.unwrap();
+
+        let info_list = service.list_template_info().await;
+        assert_eq!(info_list.len(), 2);
+
+        let info1 = info_list.iter().find(|t| t.id == "info_test_1").unwrap();
+        assert_eq!(info1.name, "Info Test 1");
+        assert_eq!(info1.description, Some("First test template".to_string()));
+        assert_eq!(info1.version, 1);
+
+        let info2 = info_list.iter().find(|t| t.id == "info_test_2").unwrap();
+        assert_eq!(info2.name, "Info Test 2");
+        assert_eq!(info2.supported_channels.len(), 2);
+        assert_eq!(info2.variables.len(), 1);
+        assert_eq!(info2.variables[0].name, "test_var");
+        assert_eq!(info2.version, 2);
+    }
+
+    #[tokio::test]
+    async fn test_template_preview_not_found() {
+        let service = NotificationService::new().unwrap();
+
+        let context = TemplateContext::new();
+        let result = service
+            .render_preview("nonexistent_template", context)
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_template_preview_in_app_only() {
+        let service = NotificationService::new().unwrap();
+
+        let template = NotificationTemplate {
+            id: "inapp_preview".to_string(),
+            name: "In-App Only".to_string(),
+            description: None,
+            subject_template: Some("New Alert".to_string()),
+            body_template: "You have {{count}} new alerts.".to_string(),
+            supported_channels: vec![NotificationChannel::InApp],
+            default_priority: NotificationPriority::Normal,
+            variables: vec![TemplateVariable {
+                name: "count".to_string(),
+                description: None,
+                required: true,
+                default_value: None,
+                variable_type: VariableType::Number,
+            }],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            version: 1,
+            active: true,
+        };
+
+        service.add_template(template).await.unwrap();
+
+        let mut context = TemplateContext::new();
+        context.insert("count".to_string(), "3".to_string());
+
+        let result = service.render_preview("inapp_preview", context).await;
+
+        assert!(result.is_ok());
+        let preview = result.unwrap();
+        assert!(preview.plain_text_body.contains("3"));
+        // In-app only templates should not have HTML body
+        assert!(preview.html_body.is_none());
+    }
 }
