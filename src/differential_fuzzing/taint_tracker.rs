@@ -41,10 +41,7 @@ pub enum SourceOrigin {
         param_index: usize,
     },
     /// Return value from a cross-contract call
-    CrossContractReturn {
-        caller: String,
-        callee: String,
-    },
+    CrossContractReturn { caller: String, callee: String },
     /// Data from an oracle/pricer contract
     OracleData {
         oracle_contract: String,
@@ -312,11 +309,8 @@ impl TaintTracker {
         let sinks = self.identify_taint_sinks(&call_graph)?;
 
         // Phase 4-6: Propagate taint and find vulnerable paths
-        let vulnerabilities = self.propagate_taint_and_find_vulnerabilities(
-            &call_graph,
-            &sources,
-            &sinks,
-        )?;
+        let vulnerabilities =
+            self.propagate_taint_and_find_vulnerabilities(&call_graph, &sources, &sinks)?;
 
         let contracts_list: Vec<String> = contracts.keys().cloned().collect();
 
@@ -339,10 +333,7 @@ impl TaintTracker {
     }
 
     /// Build the cross-contract call graph from contract WASM binaries.
-    fn build_call_graph(
-        &self,
-        contracts: &HashMap<ContractId, Vec<u8>>,
-    ) -> Result<TaintCallGraph> {
+    fn build_call_graph(&self, contracts: &HashMap<ContractId, Vec<u8>>) -> Result<TaintCallGraph> {
         let mut nodes = HashMap::new();
         let mut edges = Vec::new();
 
@@ -398,11 +389,31 @@ impl TaintTracker {
         // Look for exported function patterns in the WASM
         // Common Soroban patterns: functions starting with common names
         let common_functions = [
-            "transfer", "approve", "mint", "burn", "create_escrow",
-            "release", "refund", "cancel", "withdraw", "deposit",
-            "swap", "add_liquidity", "remove_liquidity", "stake", "unstake",
-            "claim", "distribute", "vote", "propose", "execute",
-            "initialize", "upgrade", "set_admin", "pause", "unpause",
+            "transfer",
+            "approve",
+            "mint",
+            "burn",
+            "create_escrow",
+            "release",
+            "refund",
+            "cancel",
+            "withdraw",
+            "deposit",
+            "swap",
+            "add_liquidity",
+            "remove_liquidity",
+            "stake",
+            "unstake",
+            "claim",
+            "distribute",
+            "vote",
+            "propose",
+            "execute",
+            "initialize",
+            "upgrade",
+            "set_admin",
+            "pause",
+            "unpause",
         ];
 
         for func_name in &common_functions {
@@ -471,7 +482,11 @@ impl TaintTracker {
             ("transfer", SinkType::TokenTransfer, true),
             ("mint", SinkType::TokenMint, true),
             ("require_auth", SinkType::AuthorizationCheck, true),
-            ("env.storage().instance().set", SinkType::PrivilegedStorageWrite, true),
+            (
+                "env.storage().instance().set",
+                SinkType::PrivilegedStorageWrite,
+                true,
+            ),
             ("release", SinkType::EscrowRelease, true),
             ("claim_reward", SinkType::BountyPayout, true),
         ];
@@ -589,21 +604,14 @@ impl TaintTracker {
             for sink in sinks {
                 if sink.requires_clean {
                     // Check if there's a taint path from source to sink
-                    let taint_paths = self.find_taint_paths(
-                        call_graph,
-                        source,
-                        sink,
-                        0,
-                    )?;
+                    let taint_paths = self.find_taint_paths(call_graph, source, sink, 0)?;
 
                     if !taint_paths.is_empty() {
                         let vuln_type = self.classify_vulnerability(sink);
 
                         let severity = if matches!(
                             sink.sink_type,
-                            SinkType::TokenTransfer
-                                | SinkType::TokenMint
-                                | SinkType::EscrowRelease
+                            SinkType::TokenTransfer | SinkType::TokenMint | SinkType::EscrowRelease
                         ) {
                             crate::Severity::Critical
                         } else if matches!(
@@ -626,7 +634,8 @@ impl TaintTracker {
                             contract_count: 2, // At minimum, source and sink contracts
                             mitigations: vec![
                                 "Add input sanitization at the entry point".to_string(),
-                                "Add authorization checks before the sensitive operation".to_string(),
+                                "Add authorization checks before the sensitive operation"
+                                    .to_string(),
                                 "Validate tainted data against expected ranges".to_string(),
                             ],
                         });
@@ -663,7 +672,10 @@ impl TaintTracker {
                 // Add intermediate steps
                 for rule in &node.propagation_rules {
                     match rule {
-                        PropagationRule::Assign { target, source: src } => {
+                        PropagationRule::Assign {
+                            target,
+                            source: src,
+                        } => {
                             propagation_path.push(format!("  {} = {}", target, src));
                         }
                         PropagationRule::StorageSet { key, value } => {
@@ -728,10 +740,7 @@ impl TaintTracker {
         for edge in &call_graph.edges {
             dot.push_str(&format!(
                 "  \"{}::{}\" -> \"{}::{}\" [color=orange, label=\"taint flow\"];\n",
-                edge.from_contract,
-                edge.from_function,
-                edge.to_contract,
-                edge.to_function,
+                edge.from_contract, edge.from_function, edge.to_contract, edge.to_function,
             ));
         }
 
