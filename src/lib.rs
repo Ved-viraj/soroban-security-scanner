@@ -3,6 +3,8 @@
 //! This crate provides comprehensive security analysis tools for Stellar Soroban contracts,
 //! including vulnerability detection, invariant checking, and best practices enforcement.
 
+#![recursion_limit = "2048"]
+
 // === Core types that compile cleanly ===
 
 #[derive(Debug, Clone)]
@@ -85,6 +87,11 @@ mod scan_access_control_tests;
 // Secure database connection pooling, TLS, monitoring and replica routing
 // (issue #331). Self-contained and compiles cleanly under default features.
 pub mod db_pool;
+
+// Protocol-Level Invariant Verification (Issue #449)
+// Self-contained protocol analysis engine for multi-contract invariant verification.
+// Compiles cleanly without any feature gates.
+pub mod protocol_analysis;
 
 // === Broken modules gated behind feature flag ===
 // Each module has pre-existing compilation errors (borrow checker violations,

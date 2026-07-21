@@ -187,6 +187,38 @@ enum Commands {
         #[command(subcommand)]
         action: EmergencyStopAction,
     },
+
+    /// Protocol-Level Invariant Verification (Issue #449)
+    /// Verify invariants across multi-contract protocols
+    ProtocolVerify {
+        /// Path to protocol manifest YAML/JSON file
+        #[arg(short, long)]
+        manifest: PathBuf,
+
+        /// Output format (console, json)
+        #[arg(short, long, default_value = "console")]
+        format: String,
+
+        /// Output file path
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Number of simulation steps
+        #[arg(long, default_value = "100000")]
+        simulation_steps: u64,
+
+        /// Disable adversarial exploration
+        #[arg(long)]
+        no_adversarial: bool,
+
+        /// Disable auto-inference
+        #[arg(long)]
+        no_auto_infer: bool,
+
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -642,6 +674,15 @@ fn main() -> Result<()> {
         Commands::TimeTravel { action } => run_time_travel_action(action),
         Commands::DifferentialFuzzing { action } => run_differential_fuzzing_action(action),
         Commands::Batch { action } => run_batch_action(action),
+        Commands::ProtocolVerify {
+            manifest,
+            format,
+            output,
+            simulation_steps,
+            no_adversarial,
+            no_auto_infer,
+            verbose,
+        } => run_protocol_verify(manifest, format, output, simulation_steps, no_adversarial, no_auto_infer, verbose),
     }
 }
 
@@ -1683,4 +1724,65 @@ fn run_emergency_stop_action(action: EmergencyStopAction) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn run_protocol_verify(
+    manifest_path: PathBuf,
+    format: String,
+    output: Option<PathBuf>,
+    simulation_steps: u64,
+    no_adversarial: bool,
+    no_auto_infer: bool,
+    verbose: bool,
+) -> Result<()> {
+    println!("{}", "🔬 Protocol-Level Invariant Verification".bold().cyan());
+    println!("{}", "═".repeat(50).cyan());
+
+    let config = stellar_security_scanner::protocol_analysis::VerificationConfig {
+        simulation_steps,
+        adversarial_exploration: !no_adversarial,
+        auto_infer: !no_auto_infer,
+        generate_call_graph: true,
+        output_format: format.clone(),
+        verbose,
+        ..Default::default()
+    };
+
+    let report = stellar_security_scanner::protocol_analysis::ProtocolVerifyCommand::run(
+        &manifest_path,
+        config,
+    );
+
+    // Output report
+    match format.as_str() {
+        "json" => {
+            let json = stellar_security_scanner::protocol_analysis::ProtocolVerifyCommand::to_json(&report)?;
+            match output {
+                Some(path) => {
+                    std::fs::write(&path, &json)?;
+                    println!("📄 Report saved to: {}", path.display());
+                }
+                None => {
+                    println!("{}", json);
+                }
+            }
+        }
+        _ => {
+            let text = stellar_security_scanner::protocol_analysis::ProtocolVerifyCommand::format_report(
+                &report,
+                verbose,
+            );
+            match output {
+                Some(path) => {
+                    std::fs::write(&path, &text)?;
+                    println!("📄 Report saved to: {}", path.display());
+                }
+                None => {
+                    println!("{}", text);
+                }
+            }
+        }
+    }
+
+    std::process::exit(report.exit_code.to_i32());
 }
