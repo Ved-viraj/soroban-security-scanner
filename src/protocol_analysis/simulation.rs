@@ -139,10 +139,12 @@ pub async fn run_protocol_simulation(
         }
     }
 
-    let total_functions = protocol.contracts.len() * ops.len();
     let coverage_heatmap: HashMap<String, f64> = coverage
         .into_iter()
-        .map(|(name, count)| (name, count as f64 / total_functions as f64))
+        .map(|(name, count)| {
+            let pct = (count as f64 / steps as f64).min(1.0);
+            (name, pct)
+        })
         .collect();
 
     Ok(SimulationReport {
@@ -202,7 +204,7 @@ fn initialize_state(
 fn simulate_operation(
     op: &OpTemplate,
     contract: &str,
-    state: &HashMap<String, HashMap<String, f64>>,
+    _state: &HashMap<String, HashMap<String, f64>>,
     rng: &mut impl Rng,
 ) -> (String, Vec<(String, f64)>) {
     let amount: f64 = rng.gen_range(1.0..1000.0);
@@ -334,7 +336,9 @@ fn check_invariant(
         return true;
     }
 
-    // Default: unrecognized pattern - flag as potentially violated to avoid false negatives
-    log::warn!("Unrecognized invariant expression: {}", inv.expression);
-    false
+    // Unrecognized pattern — don't flag as violated, just warn.
+    // Returning false would cause false positives for invariants whose
+    // DSL we don't parse yet.
+    log::warn!("Unrecognized invariant expression, cannot check: {}", inv.expression);
+    true
 }

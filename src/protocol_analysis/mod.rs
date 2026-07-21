@@ -109,16 +109,7 @@ pub async fn run_protocol_verification(
     let adversarial_config = adversarial::AdversarialAgent::default();
     let adversarial_report = adversarial::run_adversarial_exploration(&protocol, &adversarial_config)?;
 
-    // 7. Build protocol health dashboard (Phase 7)
-    let health = dashboard::ProtocolHealth::new(
-        &protocol.name,
-        &invariants,
-        &protocol_call_graph,
-        simulation_results.coverage_heatmap.clone(),
-        &simulation_results.violations,
-    );
-
-    // Merge results
+    // Merge results from all phases into invariants
     let mut invariants = protocol.invariants.clone();
     for (name, status) in &static_results {
         if let Some(inv) = invariants.iter_mut().find(|i| i.name == *name) {
@@ -130,10 +121,24 @@ pub async fn run_protocol_verification(
             inv.status = VerificationStatus::Violated;
         }
     }
+    for exploit in &adversarial_report.exploits_found {
+        if let Some(inv) = invariants.iter_mut().find(|i| i.name == exploit.target_invariant) {
+            inv.status = VerificationStatus::Violated;
+        }
+    }
+
+    // 7. Build protocol health dashboard (Phase 7) — after merging results
+    let health = dashboard::ProtocolHealth::new(
+        &protocol.name,
+        &invariants,
+        &protocol_call_graph,
+        simulation_results.coverage_heatmap.clone(),
+        &simulation_results.violations,
+    );
 
     Ok(ProtocolVerificationReport {
         protocol_name: protocol.name.clone(),
-        invariants,
+        invariants: invariants.clone(),
         simulation_results,
         protocol_call_graph,
         adversarial_report,

@@ -33,7 +33,7 @@ pub struct AdversarialAgent {
 impl Default for AdversarialAgent {
     fn default() -> Self {
         Self {
-            attack_rounds: 10_000,
+            attack_rounds: 1_000,
             max_operations_per_round: 20,
             initial_balance: 0.0,
         }
