@@ -114,6 +114,8 @@ pub mod event_logging;
 #[cfg(feature = "broken-modules")]
 pub mod gas_limits;
 #[cfg(feature = "broken-modules")]
+pub mod incremental_scan;
+#[cfg(feature = "broken-modules")]
 pub mod invariants;
 #[cfg(feature = "broken-modules")]
 pub mod kubernetes;
