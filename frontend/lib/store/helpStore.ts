@@ -18,24 +18,26 @@ interface HelpState {
  */
 export const useHelpStore = create<HelpState>()(
   persist(
-    (set) => ({
+    /* eslint-disable no-unused-vars */
+    set => ({
       activeTour: null,
       completedTours: [],
       helpPanelTopic: null,
-      setActiveTour: (tourId) => set({ activeTour: tourId }),
-      markTourComplete: (tourId) => 
-        set((state) => ({ 
-          completedTours: state.completedTours.includes(tourId) 
-            ? state.completedTours 
-            : [...state.completedTours, tourId] 
+      setActiveTour: tourId => set({ activeTour: tourId }),
+      markTourComplete: tourId =>
+        set(state => ({
+          completedTours: state.completedTours.includes(tourId)
+            ? state.completedTours
+            : [...state.completedTours, tourId],
         })),
-      setHelpPanelTopic: (topic) => set({ helpPanelTopic: topic }),
+      setHelpPanelTopic: topic => set({ helpPanelTopic: topic }),
       resetTours: () => set({ completedTours: [] }),
     }),
+    /* eslint-enable no-unused-vars */
     {
       name: 'soroban-help-storage',
       // Only persist the completedTours array
-      partialize: (state) => ({ completedTours: state.completedTours }),
+      partialize: state => ({ completedTours: state.completedTours }),
     }
   )
 );

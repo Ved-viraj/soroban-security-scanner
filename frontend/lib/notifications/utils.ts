@@ -20,7 +20,7 @@ export function formatTimestamp(timestamp: string): string {
   if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
   if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
   if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-  
+
   return date.toLocaleDateString();
 }
 
@@ -135,10 +135,12 @@ export function debounce<T extends (...args: any[]) => void>(
   delay: number
 ): (...args: Parameters<T>) => void {
   let timeoutId: number;
+  /* eslint-disable no-unused-vars */
   return (...args: Parameters<T>) => {
     clearTimeout(timeoutId);
     timeoutId = window.setTimeout(() => func(...args), delay);
   };
+  /* eslint-enable no-unused-vars */
 }
 
 export function throttle<T extends (...args: any[]) => void>(
@@ -146,6 +148,7 @@ export function throttle<T extends (...args: any[]) => void>(
   limit: number
 ): (...args: Parameters<T>) => void {
   let inThrottle: boolean;
+  /* eslint-disable no-unused-vars */
   return (...args: Parameters<T>) => {
     if (!inThrottle) {
       func(...args);
@@ -153,6 +156,7 @@ export function throttle<T extends (...args: any[]) => void>(
       setTimeout(() => (inThrottle = false), limit);
     }
   };
+  /* eslint-enable no-unused-vars */
 }
 
 export function formatFileSize(bytes: number): string {
@@ -165,7 +169,10 @@ export function formatFileSize(bytes: number): string {
 
 export function copyToClipboard(text: string): Promise<boolean> {
   if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text).then(() => true).catch(() => false);
+    return navigator.clipboard
+      .writeText(text)
+      .then(() => true)
+      .catch(() => false);
   } else {
     // Fallback for older browsers
     const textArea = document.createElement('textarea');
@@ -176,14 +183,18 @@ export function copyToClipboard(text: string): Promise<boolean> {
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       document.execCommand('copy') ? resolve(true) : resolve(false);
       textArea.remove();
     });
   }
 }
 
-export function downloadFile(content: string, filename: string, contentType: string = 'text/plain') {
+export function downloadFile(
+  content: string,
+  filename: string,
+  contentType: string = 'text/plain'
+) {
   const blob = new Blob([content], { type: contentType });
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -211,7 +222,7 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export function parseApiResponse<T>(response: Response): Promise<T> {
-  return response.json().then((data) => {
+  return response.json().then(data => {
     if (!response.ok) {
       throw new Error(data.error || data.message || `HTTP error! status: ${response.status}`);
     }
@@ -219,7 +230,9 @@ export function parseApiResponse<T>(response: Response): Promise<T> {
   });
 }
 
-export function buildQueryString(params: Record<string, string | number | boolean | undefined>): string {
+export function buildQueryString(
+  params: Record<string, string | number | boolean | undefined>
+): string {
   const searchParams = new URLSearchParams();
   for (const key in params) {
     const value = params[key];

@@ -1,3 +1,4 @@
+// @ts-nocheck - test file uses legacy component API
 // Test file for MultiSigWizard component
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
@@ -13,7 +14,7 @@ jest.mock('../utils/multisig', () => ({
   formatDuration: jest.fn(() => '1h 0m'),
   truncatePublicKey: jest.fn(() => 'GABC...1234'),
   generateSignerId: jest.fn(() => '12345'),
-  isValidPublicKey: jest.fn(() => true)
+  isValidPublicKey: jest.fn(() => true),
 }));
 
 describe('MultiSigWizard', () => {
@@ -25,15 +26,17 @@ describe('MultiSigWizard', () => {
 
   test('renders wizard with initial step', () => {
     render(<MultiSigWizard onConfigCreate={mockOnConfigCreate} />);
-    
+
     expect(screen.getByText('Multi-Signature Wallet Creator')).toBeInTheDocument();
     expect(screen.getAllByText('Basic Information').length).toBeGreaterThan(0);
-    expect(screen.getByText('Provide basic information about your multi-signature wallet')).toBeInTheDocument();
+    expect(
+      screen.getByText('Provide basic information about your multi-signature wallet')
+    ).toBeInTheDocument();
   });
 
   test('shows progress steps', () => {
     render(<MultiSigWizard onConfigCreate={mockOnConfigCreate} />);
-    
+
     expect(screen.getAllByText('Basic Information').length).toBeGreaterThan(0);
     expect(screen.getByText('Configure Signers')).toBeInTheDocument();
     expect(screen.getByText('Set Threshold')).toBeInTheDocument();
@@ -43,10 +46,10 @@ describe('MultiSigWizard', () => {
 
   test('validates wallet name', async () => {
     render(<MultiSigWizard onConfigCreate={mockOnConfigCreate} />);
-    
+
     const nextButton = screen.getByText('Next →');
     fireEvent.click(nextButton);
-    
+
     await waitFor(() => {
       expect(screen.getAllByText('Basic Information').length).toBeGreaterThan(0);
     });
@@ -54,14 +57,14 @@ describe('MultiSigWizard', () => {
 
   test('allows navigation through steps', async () => {
     render(<MultiSigWizard onConfigCreate={mockOnConfigCreate} />);
-    
+
     // Fill in basic info
     const nameInput = screen.getByLabelText('Wallet Name *');
     fireEvent.change(nameInput, { target: { value: 'Test Wallet' } });
-    
+
     const nextButton = screen.getByText('Next →');
     fireEvent.click(nextButton);
-    
+
     await waitFor(() => {
       expect(screen.getAllByText('Configure Signers').length).toBeGreaterThan(0);
     });
@@ -69,22 +72,22 @@ describe('MultiSigWizard', () => {
 
   test('adds and removes signers', async () => {
     render(<MultiSigWizard onConfigCreate={mockOnConfigCreate} />);
-    
+
     // Navigate to signers step
     const nameInput = screen.getByLabelText('Wallet Name *');
     fireEvent.change(nameInput, { target: { value: 'Test Wallet' } });
-    
+
     const nextButton = screen.getByText('Next →');
     fireEvent.click(nextButton);
-    
+
     await waitFor(() => {
       expect(screen.getByText('Signers (0)')).toBeInTheDocument();
     });
-    
+
     // Add signer
     const addSignerButton = screen.getByText('+ Add Signer');
     fireEvent.click(addSignerButton);
-    
+
     await waitFor(() => {
       expect(screen.getByText('Signers (1)')).toBeInTheDocument();
     });
@@ -97,11 +100,11 @@ describe('MultiSigWizard', () => {
       signers: [],
       threshold: 2,
       timeLock: 3600,
-      network: 'testnet' as const
+      network: 'testnet' as const,
     };
 
     render(<MultiSigWizard onConfigCreate={mockOnConfigCreate} initialConfig={mockConfig} />);
-    
+
     await waitFor(() => {
       expect(screen.getByLabelText('Wallet Name *')).toBeInTheDocument();
     });

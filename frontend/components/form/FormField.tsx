@@ -29,7 +29,10 @@ export interface FormFieldProps {
   showValidationIcon?: boolean;
 }
 
-const FormFieldComponent = forwardRef<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, FormFieldProps>(
+const FormFieldComponent = forwardRef<
+  HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  FormFieldProps
+>(
   (
     {
       name,
@@ -71,25 +74,27 @@ const FormFieldComponent = forwardRef<HTMLInputElement | HTMLTextAreaElement | H
       onBlur?.();
     };
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-      const newValue = type === 'number' ? 
-        (e.target.value === '' ? '' : Number(e.target.value)) : 
-        e.target.value;
+    const handleChange = (
+      e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+    ) => {
+      const newValue =
+        type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value;
       onChange?.(newValue);
     };
 
     const getInputClasses = () => {
-      const baseClasses = 'w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:border-transparent';
+      const baseClasses =
+        'w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:border-transparent';
       const stateClasses = disabled
         ? 'bg-gray-100 border-gray-300 cursor-not-allowed'
         : isValid
-        ? 'border-green-500 focus:ring-green-500 bg-green-50'
-        : isInvalid
-        ? 'border-red-500 focus:ring-red-500 bg-red-50'
-        : focused
-        ? 'border-primary-500 focus:ring-primary-500'
-        : 'border-gray-300 hover:border-gray-400';
-      
+          ? 'border-green-500 focus:ring-green-500 bg-green-50'
+          : isInvalid
+            ? 'border-red-500 focus:ring-red-500 bg-red-50'
+            : focused
+              ? 'border-primary-500 focus:ring-primary-500'
+              : 'border-gray-300 hover:border-gray-400';
+
       return `${baseClasses} ${stateClasses} ${className}`;
     };
 
@@ -133,12 +138,9 @@ const FormFieldComponent = forwardRef<HTMLInputElement | HTMLTextAreaElement | H
 
       if (type === 'select') {
         return (
-          <select
-            ref={ref as React.RefObject<HTMLSelectElement>}
-            {...commonProps}
-          >
+          <select ref={ref as React.RefObject<HTMLSelectElement>} {...commonProps}>
             <option value="">{placeholder || 'Select an option'}</option>
-            {options?.map((option) => (
+            {options?.map(option => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -161,34 +163,31 @@ const FormFieldComponent = forwardRef<HTMLInputElement | HTMLTextAreaElement | H
 
     const renderValidationIcon = () => {
       if (!showValidationIcon) return null;
-      
+
       if (isValidating) {
         return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />;
       }
-      
+
       if (isValid) {
         return <CheckCircle className="h-4 w-4 text-green-500" />;
       }
-      
+
       if (isInvalid) {
         return <AlertCircle className="h-4 w-4 text-red-500" />;
       }
-      
+
       return null;
     };
 
     return (
       <div className="space-y-1">
         {label && (
-          <label 
-            htmlFor={name} 
-            className="block text-sm font-medium text-gray-700"
-          >
+          <label htmlFor={name} className="block text-sm font-medium text-gray-700">
             {label}
             {required && <span className="text-red-500 ml-1">*</span>}
           </label>
         )}
-        
+
         <div className="relative">
           {renderInput()}
           {showValidationIcon && (
