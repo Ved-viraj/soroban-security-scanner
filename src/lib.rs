@@ -146,6 +146,12 @@ pub mod time_travel_debugger;
 #[cfg(feature = "broken-modules")]
 pub mod wallet;
 
+// Economic exploit simulation framework (#444).
+// Models DeFi protocols and searches for profitable attack sequences:
+// flash loans, oracle manipulation, and MEV detection.
+#[cfg(feature = "broken-modules")]
+pub mod economic_security;
+
 #[cfg(feature = "broken-modules")]
 #[cfg(test)]
 mod multisig_tests;
@@ -216,4 +222,24 @@ pub use wallet::{
     CreateWalletRequest, ImportWalletRequest, InMemoryWalletStore, RestoreWalletRequest, Wallet,
     WalletBalance, WalletError, WalletExport, WalletService, WalletStatus, WalletStore,
     WalletSyncRecord, WalletType,
+};
+
+#[cfg(feature = "broken-modules")]
+pub use economic_security::{
+    attack_agent::{AgentObjective, AttackAgent, AttackCapability},
+    defi_primitives::{
+        ConstantProductAmm, DeFiPrimitive, DeFiPrimitiveType, LendingPool, LiquidityPool, Oracle,
+        OracleType, StakingRewards, StateChange, TwapOracle,
+    },
+    flash_loan::{FlashLoanAttack, FlashLoanScenario, FlashLoanSimulator},
+    mev_detection::{MevDetector, MevOpportunity, MevType, SandwichAttack, TransactionOrder},
+    oracle_detection::{OracleManipulationDetector, OracleManipulationScenario, PriceDeviation},
+    profitability::{
+        ExploitDifficulty, ExploitProfitability, ProfitabilityAnalyzer, ProfitabilityScore,
+    },
+    report::{AttackSequence, EconomicExploitReport, EconomicExploitSummary, EconomicFinding},
+    search_engine::{
+        BeamSearch, GeneticAlgorithm, MonteCarloTreeSearch, SearchAlgorithm, SearchConfig,
+        SearchResult, TransactionSequence,
+    },
 };
