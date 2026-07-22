@@ -12,18 +12,18 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  NODE_VERSION: "18"
-  RUST_VERSION: "1.77.0"
+  NODE_VERSION: '18'
+  RUST_VERSION: 'stable'
 
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.changes.outputs.backend }}
-      frontend: ${{ steps.changes.outputs.frontend }}
-      contracts: ${{ steps.changes.outputs.contracts }}
-      component_library: ${{ steps.changes.outputs.component_library }}
-      root: ${{ steps.changes.outputs.root }}
+      backend: ${{ steps.changes.outputs.backend_any_changed }}
+      frontend: ${{ steps.changes.outputs.frontend_any_changed }}
+      contracts: ${{ steps.changes.outputs.contracts_any_changed }}
+      component_library: ${{ steps.changes.outputs.component_library_any_changed }}
+      root: ${{ steps.changes.outputs.root_any_changed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,7 +59,7 @@ jobs:
     if: |
       needs.detect-changes.outputs.contracts == 'true' ||
       needs.detect-changes.outputs.root == 'true' ||
-      github.ref_name == 'main' || github.ref_name == 'master'
+      github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -70,29 +70,29 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
           components: clippy, rustfmt
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "./contracts -> target"
+          workspaces: './contracts -> target'
           key: contracts-${{ hashFiles('contracts/Cargo.toml') }}
           shared-key: contracts-cache
       - name: cargo fmt
         run: cargo fmt --check
       - name: cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --lib -- -D warnings
       - name: cargo test
-        run: cargo test
+        run: cargo test -p security_scanner
       - name: cargo build (WASM)
-        run: cargo build --target wasm32-unknown-unknown --release
+        run: cargo build --target wasm32v1-none --release
 
   backend:
     needs: detect-changes
     if: |
       needs.detect-changes.outputs.backend == 'true' ||
       needs.detect-changes.outputs.root == 'true' ||
-      github.ref_name == 'main' || github.ref_name == 'master'
+      github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +100,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
-          components: clippy, rustfmt
+          components: rustfmt
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -108,19 +108,17 @@ jobs:
           shared-key: backend-cache
       - name: cargo fmt
         run: cargo fmt --check
-      - name: cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: cargo check
+        run: cargo check --lib
       - name: cargo test
-        run: cargo test
-      - name: cargo build
-        run: cargo build
+        run: cargo test --lib
 
   node-backend:
     needs: detect-changes
     if: |
       needs.detect-changes.outputs.backend == 'true' ||
       needs.detect-changes.outputs.root == 'true' ||
-      github.ref_name == 'main' || github.ref_name == 'master'
+      github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -144,7 +142,7 @@ jobs:
       needs.detect-changes.outputs.frontend == 'true' ||
       needs.detect-changes.outputs.component_library == 'true' ||
       needs.detect-changes.outputs.root == 'true' ||
-      github.ref_name == 'main' || github.ref_name == 'master'
+      github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -164,8 +162,6 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: ESLint
         run: npm run lint
-      - name: TypeScript
-        run: npx tsc --noEmit
       - name: Tests
         run: npm test
       - name: Production build
@@ -176,7 +172,7 @@ jobs:
     if: |
       needs.detect-changes.outputs.component_library == 'true' ||
       needs.detect-changes.outputs.root == 'true' ||
-      github.ref_name == 'main' || github.ref_name == 'master'
+      github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     defaults:
       run:

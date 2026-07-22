@@ -6,13 +6,13 @@
 //! - Configure address lists per project or globally
 //! - Import/export address lists in multiple formats
 
+use anyhow::{anyhow, Result};
+use chrono::{DateTime, Utc};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::fs;
-use anyhow::{Result, anyhow};
-use regex::Regex;
-use chrono::{DateTime, Utc};
+use std::path::PathBuf;
 
 /// Supported address formats on Stellar/Soroban
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -794,7 +794,8 @@ impl AddressFilter {
 
     /// Filter multiple addresses
     pub fn filter_addresses(&self, addresses: &[String]) -> Vec<FilterResult> {
-        addresses.iter()
+        addresses
+            .iter()
             .map(|addr| self.filter_address(addr))
             .collect()
     }
@@ -804,7 +805,7 @@ impl AddressFilter {
         if !self.config.validate_stellar_addresses {
             return true;
         }
-        
+
         // Stellar addresses start with 'G' and are 56 chars
         let re = Regex::new(r"^G[0-9A-Z]{55}$").unwrap();
         re.is_match(address)
@@ -820,7 +821,7 @@ impl AddressFilter {
     /// Load addresses from a file
     pub fn load_from_file(&self, path: &PathBuf) -> Result<Vec<AddressEntry>> {
         let content = fs::read_to_string(path)?;
-        
+
         if path.extension().and_then(|s| s.to_str()) == Some("json") {
             let entries: Vec<AddressEntry> = serde_json::from_str(&content)?;
             Ok(entries)
@@ -857,7 +858,7 @@ impl AddressFilter {
                     } else {
                         String::new()
                     };
-                    
+
                     entries.push(AddressEntry::new(address, format, category, description));
                 }
             }
@@ -896,8 +897,10 @@ impl AddressFilter {
     /// Export addresses to a CSV file
     pub fn export_to_csv(&self, path: &PathBuf) -> Result<()> {
         let mut csv = String::new();
-        csv.push_str("address,format,category,description,source,tags,added_at,expires_at,active\n");
-        
+        csv.push_str(
+            "address,format,category,description,source,tags,added_at,expires_at,active\n",
+        );
+
         for entry in self.entries.values() {
             let format_str = match entry.format {
                 AddressFormat::StellarClassic => "stellar",
@@ -908,7 +911,7 @@ impl AddressFilter {
                 AddressFormat::SecretKey => "secret",
                 AddressFormat::Generic => "generic",
             };
-            
+
             let category_str = match &entry.category {
                 AddressCategory::Trusted => "trusted",
                 AddressCategory::Malicious => "malicious",
@@ -921,12 +924,13 @@ impl AddressFilter {
                 AddressCategory::MultiSig => "multisig",
                 AddressCategory::Other(s) => s,
             };
-            
+
             let tags_str = entry.tags.join(";");
-            let expires_str = entry.expires_at
+            let expires_str = entry
+                .expires_at
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_default();
-            
+
             csv.push_str(&format!(
                 "{},{},{},{},{},{},{},{},{}\n",
                 entry.address,
@@ -940,7 +944,7 @@ impl AddressFilter {
                 entry.active
             ));
         }
-        
+
         fs::write(path, csv)?;
         Ok(())
     }
@@ -1285,7 +1289,7 @@ mod tests {
     fn test_whitelist_address() {
         let mut filter = AddressFilter::new();
         let entry = create_test_entry("GABC123", AddressCategory::Trusted);
-        
+
         assert!(filter.add_to_whitelist(entry).is_ok());
         assert!(filter.is_whitelisted("GABC123"));
         assert!(!filter.is_blacklisted("GABC123"));
@@ -1295,7 +1299,7 @@ mod tests {
     fn test_blacklist_address() {
         let mut filter = AddressFilter::new();
         let entry = create_test_entry("GMALICIOUS", AddressCategory::Malicious);
-        
+
         assert!(filter.add_to_blacklist(entry).is_ok());
         assert!(filter.is_blacklisted("GMALICIOUS"));
         assert!(!filter.is_whitelisted("GMALICIOUS"));
@@ -1306,7 +1310,7 @@ mod tests {
         let mut filter = AddressFilter::new();
         let entry = create_test_entry("GWHITELIST", AddressCategory::Trusted);
         filter.add_to_whitelist(entry).unwrap();
-        
+
         let result = filter.filter_address("GWHITELIST");
         assert_eq!(result.action, FilterAction::Allow);
         assert_eq!(result.list_type, ListType::Whitelist);
@@ -1317,7 +1321,7 @@ mod tests {
         let mut filter = AddressFilter::new();
         let entry = create_test_entry("GBLACKLIST", AddressCategory::Malicious);
         filter.add_to_blacklist(entry).unwrap();
-        
+
         let result = filter.filter_address("GBLACKLIST");
         assert_eq!(result.action, FilterAction::Block);
         assert_eq!(result.list_type, ListType::Blacklist);
@@ -1336,7 +1340,7 @@ mod tests {
         let mut filter = AddressFilter::new();
         let entry = create_test_entry("GREMOVE", AddressCategory::Trusted);
         filter.add_to_whitelist(entry).unwrap();
-        
+
         assert!(filter.is_whitelisted("GREMOVE"));
         assert!(filter.remove_address("GREMOVE"));
         assert!(!filter.is_whitelisted("GREMOVE"));
@@ -1346,10 +1350,16 @@ mod tests {
     #[test]
     fn test_address_stats() {
         let mut filter = AddressFilter::new();
-        filter.add_to_whitelist(create_test_entry("G1", AddressCategory::Trusted)).unwrap();
-        filter.add_to_whitelist(create_test_entry("G2", AddressCategory::Trusted)).unwrap();
-        filter.add_to_blacklist(create_test_entry("G3", AddressCategory::Malicious)).unwrap();
-        
+        filter
+            .add_to_whitelist(create_test_entry("G1", AddressCategory::Trusted))
+            .unwrap();
+        filter
+            .add_to_whitelist(create_test_entry("G2", AddressCategory::Trusted))
+            .unwrap();
+        filter
+            .add_to_blacklist(create_test_entry("G3", AddressCategory::Malicious))
+            .unwrap();
+
         let stats = filter.get_stats();
         assert_eq!(stats.total_entries, 3);
         assert_eq!(stats.whitelisted_count, 2);

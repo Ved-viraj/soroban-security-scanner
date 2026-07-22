@@ -3,21 +3,17 @@
 import { Suspense, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { SectionErrorBoundary } from '@/components/ui/ErrorBoundary';
-import { 
-  Search, 
-  Trophy, 
-  BarChart3, 
-  Wallet, 
-  Settings, 
-  Activity, 
-  Shield, 
-  Zap, 
-  Clock, 
+import {
+  Search,
+  Trophy,
+  BarChart3,
+  Wallet,
+  Settings,
+  Activity,
+  Shield,
   Plus,
   HelpCircle,
-  FileText,
   ShieldCheck,
-  Users
 } from 'lucide-react';
 
 // Help components
@@ -26,7 +22,18 @@ import GuidedTour from '../components/help/GuidedTour';
 import { useHelpStore } from '../lib/store/helpStore';
 
 // Types
-type View = 'bounties' | 'leaderboard' | 'wallet' | 'analytics' | 'settings' | 'scanner' | 'report' | 'time-travel' | 'batch' | 'balance' | 'multisig';
+type View =
+  | 'bounties'
+  | 'leaderboard'
+  | 'wallet'
+  | 'analytics'
+  | 'settings'
+  | 'scanner'
+  | 'report'
+  | 'time-travel'
+  | 'batch'
+  | 'balance'
+  | 'multisig';
 
 interface Bounty {
   id: string;
@@ -49,46 +56,46 @@ interface DisputeData {
 // Dynamic components with skeletons
 const ScannerInterface = dynamic(() => import('../components/ScannerInterface'), {
   loading: () => <div className="skeleton h-96 w-full rounded-lg" />,
-  ssr: false
+  ssr: false,
 });
 
 const VulnerabilityReport = dynamic(() => import('../components/VulnerabilityReport'), {
   loading: () => <div className="skeleton h-64 w-full rounded-lg" />,
-  ssr: false
+  ssr: false,
 });
 
 const AnalyticsDashboard = dynamic(() => import('../components/AnalyticsDashboard'), {
   loading: () => <div className="skeleton h-80 w-full rounded-lg" />,
-  ssr: false
+  ssr: false,
 });
 
 const TimeTravelDebugger = dynamic(() => import('../components/TimeTravelDebugger'), {
   loading: () => <div className="skeleton h-96 w-full rounded-lg" />,
-  ssr: false
+  ssr: false,
 });
 
 const BatchOperations = dynamic(() => import('../components/BatchOperations'), {
   loading: () => <div className="skeleton h-96 w-full rounded-lg" />,
-  ssr: false
+  ssr: false,
 });
 
 const BalanceDisplay = dynamic(() => import('../components/BalanceDisplay'), {
   loading: () => <div className="skeleton h-96 w-full rounded-lg" />,
-  ssr: false
+  ssr: false,
 });
 
 const SettingsPanel = dynamic(() => import('../components/SettingsPanel'), {
   loading: () => <div className="skeleton h-96 w-full rounded-lg" />,
-  ssr: false
+  ssr: false,
 });
 
 const MultiSigWizard = dynamic(() => import('../components/MultiSigWizard'), {
   loading: () => <div className="skeleton h-96 w-full rounded-lg" />,
-  ssr: false
+  ssr: false,
 });
 
 // Mock components for missing files to avoid build breakage
-const BountyBoard = ({ onBountySelect }: { onBountySelect: (bounty: Bounty) => void }) => (
+const BountyBoard = () => (
   <div className="p-8 text-center bg-white rounded-xl border border-dashed border-gray-300">
     <Search className="h-12 w-12 text-gray-400 mx-auto mb-4" />
     <h3 className="text-xl font-bold">Bounty Board</h3>
@@ -108,8 +115,12 @@ const ReportSubmission = ({ bounty, onSubmit, onCancel }: any) => (
   <div className="p-8 bg-white rounded-xl border border-gray-200">
     <h3 className="text-xl font-bold mb-4">Submit Report for {bounty.title}</h3>
     <div className="flex gap-4">
-      <button onClick={() => onSubmit({ id: '1', findings: 'test' })} className="btn btn-primary">Submit</button>
-      <button onClick={onCancel} className="btn btn-secondary">Cancel</button>
+      <button onClick={() => onSubmit({ id: '1', findings: 'test' })} className="btn btn-primary">
+        Submit
+      </button>
+      <button onClick={onCancel} className="btn btn-secondary">
+        Cancel
+      </button>
     </div>
   </div>
 );
@@ -118,8 +129,15 @@ const DisputeForm = ({ submission, onSubmitDispute, onCancel }: any) => (
   <div className="p-8 bg-white rounded-xl border border-gray-200">
     <h3 className="text-xl font-bold mb-4">Dispute Submission {submission.id}</h3>
     <div className="flex gap-4">
-      <button onClick={() => onSubmitDispute({ id: '1', reason: 'test' })} className="btn btn-primary">Submit Dispute</button>
-      <button onClick={onCancel} className="btn btn-secondary">Cancel</button>
+      <button
+        onClick={() => onSubmitDispute({ id: '1', reason: 'test' })}
+        className="btn btn-primary"
+      >
+        Submit Dispute
+      </button>
+      <button onClick={onCancel} className="btn btn-secondary">
+        Cancel
+      </button>
     </div>
   </div>
 );
@@ -131,18 +149,7 @@ export default function App() {
   const [showDisputeForm, setShowDisputeForm] = useState(false);
   const [selectedSubmission, setSelectedSubmission] = useState<BountySubmissionType | null>(null);
   const [disputes, setDisputes] = useState<DisputeData[]>([]);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  const { 
-    setActiveTour, 
-    helpPanelTopic, 
-    setHelpPanelTopic 
-  } = useHelpStore();
-
-  const handleBountySelect = (bounty: Bounty) => {
-    setSelectedBounty(bounty);
-    setShowReportForm(true);
-  };
+  const { setActiveTour, helpPanelTopic, setHelpPanelTopic } = useHelpStore();
 
   const handleReportSubmit = (submission: BountySubmissionType) => {
     console.log('Report submitted:', submission);
@@ -270,7 +277,7 @@ export default function App() {
               Soroban Security Scanner
             </h1>
             <nav className="hidden md:flex space-x-4">
-              {navigation.map((item) => (
+              {navigation.map(item => (
                 <button
                   key={item.view}
                   onClick={() => setActiveTab(item.view)}
@@ -294,10 +301,12 @@ export default function App() {
           <div className="flex justify-between items-end">
             <div>
               <h2 className="text-4xl font-bold capitalize">{activeTab.replace('-', ' ')}</h2>
-              <p className="text-gray-500 mt-2 text-lg">Manage and monitor your smart contract security with precision.</p>
+              <p className="text-gray-500 mt-2 text-lg">
+                Manage and monitor your smart contract security with precision.
+              </p>
             </div>
             <div className="flex space-x-3">
-              <button 
+              <button
                 onClick={() => setHelpPanelTopic(activeTab as any)}
                 className="btn btn-secondary flex items-center gap-2"
               >
@@ -305,8 +314,16 @@ export default function App() {
                 Documentation
               </button>
               {['scanner', 'report', 'time-travel'].includes(activeTab) && (
-                <button 
-                  onClick={() => setActiveTour(activeTab === 'scanner' ? 'scan' : activeTab === 'report' ? 'vulnerability' : 'time-travel')}
+                <button
+                  onClick={() =>
+                    setActiveTour(
+                      activeTab === 'scanner'
+                        ? 'scan'
+                        : activeTab === 'report'
+                          ? 'vulnerability'
+                          : 'time-travel'
+                    )
+                  }
                   className="btn btn-secondary flex items-center gap-2 border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100"
                 >
                   <Activity className="h-5 w-5" />
@@ -319,13 +336,11 @@ export default function App() {
               </button>
             </div>
           </div>
-          <div className="animate-fade-in">
-            {renderActiveComponent()}
-          </div>
+          <div className="animate-fade-in">{renderActiveComponent()}</div>
         </div>
       </main>
 
-{/* Floating Help Button */}
+      {/* Floating Help Button */}
       <div className="fixed bottom-8 right-8 z-[90]">
         <button
           onClick={() => setHelpPanelTopic(activeTab as any)}

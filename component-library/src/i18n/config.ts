@@ -44,7 +44,7 @@ const i18nConfig = {
     escapeValue: false, // React already escapes
     
     // Custom formatters
-    format: (value, format, lng) => {
+    format: (value: string, format?: string, lng?: string): string => {
       if (format === 'currency') {
         const currencyFormats: Record<string, string> = {
           'en': 'en-US',

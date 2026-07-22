@@ -2,7 +2,8 @@
 
 import React, { ReactNode } from 'react';
 import { useFormValidation } from '@/hooks/useFormValidation';
-import { FormConfig, UseFormValidationOptions } from '@/utils/validation';
+import { FormConfig } from '@/utils/validation';
+import { UseFormValidationOptions } from '@/hooks/useFormValidation';
 
 export interface FormProps<T extends Record<string, any>> {
   config: FormConfig;
@@ -36,7 +37,7 @@ export function Form<T extends Record<string, any>>({
   children,
   options,
   className = '',
-  noValidate = false
+  noValidate = false,
 }: FormProps<T>) {
   const formValidation = useFormValidation<T>(config, options);
   const { handleSubmit } = formValidation;
@@ -44,11 +45,7 @@ export function Form<T extends Record<string, any>>({
   const onFormSubmit = handleSubmit(onSubmit);
 
   return (
-    <form
-      onSubmit={onFormSubmit}
-      noValidate={noValidate}
-      className={className}
-    >
+    <form onSubmit={onFormSubmit} noValidate={noValidate} className={className}>
       {children(formValidation)}
     </form>
   );
