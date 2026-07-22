@@ -40,7 +40,7 @@ export function Form<T extends Record<string, any>>({
   options,
   className = '',
   noValidate = false,
-  onSuccessMessage
+  onSuccessMessage,
 }: FormProps<T>) {
   const formValidation = useFormValidation<T>(config, options);
   const { handleSubmit, errors } = formValidation;
@@ -54,9 +54,7 @@ export function Form<T extends Record<string, any>>({
     const currentErrorCount = errorEntries.length;
 
     if (currentErrorCount > prevErrorCountRef.current) {
-      const fieldNames = errorEntries.map(([field]) =>
-        field.replace(/([A-Z])/g, ' $1').trim()
-      );
+      const fieldNames = errorEntries.map(([field]) => field.replace(/([A-Z])/g, ' $1').trim());
       setAnnouncement(
         `Form has ${currentErrorCount} error${currentErrorCount > 1 ? 's' : ''}: ${fieldNames.join(', ')}`
       );
@@ -87,11 +85,7 @@ export function Form<T extends Record<string, any>>({
       >
         {announcement}
       </div>
-      <form
-        onSubmit={onFormSubmit}
-        noValidate={noValidate}
-        className={className}
-      >
+      <form onSubmit={onFormSubmit} noValidate={noValidate} className={className}>
         {children(formValidation)}
       </form>
     </>

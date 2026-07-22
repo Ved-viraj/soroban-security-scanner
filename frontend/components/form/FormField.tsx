@@ -123,7 +123,7 @@ const FormFieldComponent = forwardRef<
         'aria-describedby': getAriaDescribedBy(),
         'aria-invalid': isInvalid || !!error,
         'aria-required': required,
-        ...props
+        ...props,
       };
 
       if (type === 'textarea') {
@@ -200,13 +200,19 @@ const FormFieldComponent = forwardRef<
         {(error || helperText) && (
           <div className="space-y-1">
             {error && (
-              <p id={`${name}-error`} className="text-sm text-red-600 flex items-center" role="alert">
+              <p
+                id={`${name}-error`}
+                className="text-sm text-red-600 flex items-center"
+                role="alert"
+              >
                 <AlertCircle className="h-4 w-4 mr-1 flex-shrink-0" aria-hidden="true" />
                 {error}
               </p>
             )}
             {helperText && !error && (
-              <p id={`${name}-helper`} className="text-sm text-gray-500">{helperText}</p>
+              <p id={`${name}-helper`} className="text-sm text-gray-500">
+                {helperText}
+              </p>
             )}
           </div>
         )}

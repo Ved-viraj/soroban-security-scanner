@@ -93,6 +93,7 @@ class EmailProvider extends NotificationProvider {
 
     const smtpConfig = this.config.config;
     if (!smtpConfig.smtp_host || !smtpConfig.username || !smtpConfig.password) {
+      // eslint-disable-next-line no-console
       console.warn('Email provider not properly configured');
       return;
     }
@@ -188,6 +189,7 @@ class EmailProvider extends NotificationProvider {
       await this.transporter.verify();
       return true;
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('Email provider health check failed:', error.message);
       return false;
     }
@@ -244,6 +246,7 @@ class SMSProvider extends NotificationProvider {
         message.body.length > 160 ? message.body.substring(0, 157) + '...' : message.body;
 
       // Mock implementation - would use real SMS service
+      // eslint-disable-next-line no-console
       console.log(`SMS sent to ${recipient.phone}: ${smsBody}`);
 
       const deliveryTime = Date.now() - startTime;
@@ -343,6 +346,7 @@ class PushProvider extends NotificationProvider {
     for (const deviceToken of recipient.deviceTokens) {
       try {
         // Mock implementation - would use real push service
+        // eslint-disable-next-line no-console
         console.log(`Push sent to device ${deviceToken}: ${message.subject}`);
         successCount++;
       } catch (error) {
