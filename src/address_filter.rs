@@ -253,7 +253,9 @@ impl ThreatIntelFeed for StellarExpertFeed {
             request = request.header(key.as_str(), value.as_str());
         }
 
-        let response = request.send().map_err(|e| anyhow!("StellarExpert API request failed: {}", e))?;
+        let response = request
+            .send()
+            .map_err(|e| anyhow!("StellarExpert API request failed: {}", e))?;
 
         if !response.status().is_success() {
             return Err(anyhow!(
@@ -336,7 +338,9 @@ impl ThreatIntelFeed for StellarExpertFeed {
             request = request.header(key.as_str(), value.as_str());
         }
 
-        let response = request.send().map_err(|e| anyhow!("StellarExpert API request failed: {}", e))?;
+        let response = request
+            .send()
+            .map_err(|e| anyhow!("StellarExpert API request failed: {}", e))?;
 
         if !response.status().is_success() {
             return Err(anyhow!(
@@ -463,7 +467,9 @@ impl ThreatIntelFeed for StellarGuardFeed {
             request = request.header(key.as_str(), value.as_str());
         }
 
-        let response = request.send().map_err(|e| anyhow!("StellarGuard API request failed: {}", e))?;
+        let response = request
+            .send()
+            .map_err(|e| anyhow!("StellarGuard API request failed: {}", e))?;
 
         if !response.status().is_success() {
             return Err(anyhow!(
@@ -1372,7 +1378,7 @@ mod tests {
     fn test_address_pattern_matching() {
         let mut filter = AddressFilter::new();
         filter.add_pattern(r"^MALICIOUS", FilterAction::Block).unwrap();
-        
+
         let result = filter.filter_address("MALICIOUS_ADDR");
         assert_eq!(result.action, FilterAction::Block);
         assert_eq!(result.list_type, ListType::None);
