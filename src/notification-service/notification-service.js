@@ -87,6 +87,7 @@ class NotificationService {
         this.providers.set(channel, provider);
         this.rateLimiters.set(channel, new RateLimiter());
       } catch (error) {
+        // eslint-disable-next-line no-console
         console.warn(`Failed to initialize ${channel} provider:`, error.message);
       }
     }
@@ -205,6 +206,7 @@ class NotificationService {
     const jobId = uuidv4();
 
     // Mock implementation - just return the job ID
+    // eslint-disable-next-line no-console
     console.log(`Notification scheduled for ${scheduledFor} with job ID: ${jobId}`);
 
     return jobId;
@@ -326,6 +328,7 @@ class NotificationService {
         const providerStats = await provider.getStats();
         stats[channel] = providerStats;
       } catch (error) {
+        // eslint-disable-next-line no-console
         console.error(`Failed to get stats for ${channel}:`, error.message);
       }
     }
