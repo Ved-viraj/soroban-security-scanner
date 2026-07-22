@@ -27,10 +27,16 @@ export function FormErrorSummary({
   if (filteredErrors.length === 0) return null;
 
   return (
-    <div className={`bg-red-50 border border-red-200 rounded-lg p-4 ${className}`}>
+    <div
+      id="form-error-summary"
+      role="alert"
+      aria-live="assertive"
+      aria-atomic="true"
+      className={`bg-red-50 border border-red-200 rounded-lg p-4 ${className}`}
+    >
       <div className="flex items-start">
         <div className="flex-shrink-0">
-          <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
+          <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" aria-hidden="true" />
         </div>
         <div className="ml-3 flex-1">
           <h3 className="text-sm font-medium text-red-800">{title}</h3>
