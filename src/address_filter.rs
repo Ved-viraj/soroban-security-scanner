@@ -979,46 +979,61 @@ impl AddressFilter {
         let mut all_trusted: Vec<AddressEntry> = Vec::new();
 
         for feed in &self.feeds {
-            // Refresh malicious addresses
-            match feed.fetch_malicious_addresses(self.config.threat_intel_feeds
+            // Resolve feed config for this feed
+            let feed_config = self.config.threat_intel_feeds
                 .iter()
                 .find(|fc| fc.name == feed.name())
+                .cloned();
+            let max_entries = feed_config.as_ref()
                 .map(|fc| fc.max_entries_per_fetch)
-                .unwrap_or(5000))
-            {
-                Ok(entries) => {
-                    summary.total_malicious_fetched += entries.len();
-                    all_malicious.extend(entries);
-                }
-                Err(e) => {
-                    summary.feeds_failed += 1;
-                    summary.errors.push(format!(
-                        "Feed '{}' failed to fetch malicious addresses: {}",
-                        feed.name(),
-                        e
-                    ));
-                    continue;
+                .unwrap_or(5000);
+            let include_malicious = feed_config.as_ref()
+                .map(|fc| fc.include_malicious)
+                .unwrap_or(true);
+            let include_trusted = feed_config.as_ref()
+                .map(|fc| fc.include_trusted)
+                .unwrap_or(false);
+
+            let mut feed_failed = false;
+
+            // Refresh malicious addresses if enabled
+            if include_malicious {
+                match feed.fetch_malicious_addresses(max_entries) {
+                    Ok(entries) => {
+                        summary.total_malicious_fetched += entries.len();
+                        all_malicious.extend(entries);
+                    }
+                    Err(e) => {
+                        feed_failed = true;
+                        summary.errors.push(format!(
+                            "Feed '{}' failed to fetch malicious addresses: {}",
+                            feed.name(),
+                            e
+                        ));
+                    }
                 }
             }
 
-            // Refresh trusted addresses
-            match feed.fetch_trusted_addresses(self.config.threat_intel_feeds
-                .iter()
-                .find(|fc| fc.name == feed.name())
-                .map(|fc| fc.max_entries_per_fetch)
-                .unwrap_or(5000))
-            {
-                Ok(entries) => {
-                    summary.total_trusted_fetched += entries.len();
-                    all_trusted.extend(entries);
+            // Refresh trusted addresses if enabled
+            if include_trusted {
+                match feed.fetch_trusted_addresses(max_entries) {
+                    Ok(entries) => {
+                        summary.total_trusted_fetched += entries.len();
+                        all_trusted.extend(entries);
+                    }
+                    Err(e) => {
+                        feed_failed = true;
+                        summary.errors.push(format!(
+                            "Feed '{}' failed to fetch trusted addresses: {}",
+                            feed.name(),
+                            e
+                        ));
+                    }
                 }
-                Err(e) => {
-                    summary.errors.push(format!(
-                        "Feed '{}' failed to fetch trusted addresses: {}",
-                        feed.name(),
-                        e
-                    ));
-                }
+            }
+
+            if feed_failed {
+                summary.feeds_failed += 1;
             }
         }
 
@@ -1056,10 +1071,14 @@ impl AddressFilter {
 
         // Update feed entry counts
         for feed in &self.feeds {
+            let feed_name = feed.name().to_string();
+            if feed_name.is_empty() {
+                continue;
+            }
             let count = self.entries.values()
-                .filter(|e| e.source.starts_with(feed.name()))
+                .filter(|e| e.source.starts_with(&feed_name))
                 .count();
-            self.feed_entry_counts.insert(feed.name().to_string(), count);
+            self.feed_entry_counts.insert(feed_name, count);
         }
 
         Ok(summary)
@@ -1071,6 +1090,18 @@ impl AddressFilter {
             .iter()
             .map(|feed| {
                 let feed_name = feed.name().to_string();
+                if feed_name.is_empty() {
+                    return ThreatIntelFeedStatus {
+                        name: String::new(),
+                        feed_type: feed.feed_type().to_string(),
+                        enabled: true,
+                        is_healthy: false,
+                        last_refreshed: None,
+                        last_fetch_count: 0,
+                        malicious_count: 0,
+                        trusted_count: 0,
+                    };
+                }
                 let source_prefix = format!("{}:", feed_name);
 
                 let malicious_count = self
@@ -1111,6 +1142,12 @@ impl AddressFilter {
     ///
     /// Spawns a background thread that periodically refreshes addresses
     /// from all configured feeds at the configured interval.
+    ///
+    /// **Note:** This is a placeholder implementation. The background thread
+    /// sleeps but does not perform actual refreshes because `AddressFilter`
+    /// is not `Send` + `Sync`. For production use, wrap `AddressFilter` in
+    /// `Arc<Mutex<AddressFilter>>` and pass it to the thread.
+    #[allow(dead_code)]
     pub fn start_background_refresh(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
         let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let running_clone = running.clone();
@@ -1121,9 +1158,6 @@ impl AddressFilter {
 
         let interval = self.config.auto_refresh_interval_secs;
 
-        // Clone what we need for the background thread
-        // Since AddressFilter is not Clone, we need to use Arc<Mutex<>> approach
-        // For now, we provide the primitives; the caller manages the filter
         std::thread::spawn(move || {
             while running_clone.load(std::sync::atomic::Ordering::Relaxed) {
                 std::thread::sleep(std::time::Duration::from_secs(interval));
@@ -1132,6 +1166,11 @@ impl AddressFilter {
 
         running
     }
+    /// Get the number of entries contributed by each feed
+    pub fn get_feed_entry_counts(&self) -> &HashMap<String, usize> {
+        &self.feed_entry_counts
+    }
+
     /// Get statistics about the address filter
     pub fn get_stats(&self) -> AddressFilterStats {
         let feed_sourced = self.entries.values()

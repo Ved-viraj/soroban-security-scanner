@@ -17,11 +17,13 @@ pub struct SecurityScanner {
     ignore_patterns: Vec<Regex>,
     pub emergency_stop: EmergencyStop,
     pub watchdog: ScanWatchdog,
+}
 
 pub struct InvariantScanner {
     invariant_rules: Vec<(InvariantRule, Regex)>,
     emergency_stop: EmergencyStop,
     pub watchdog: ScanWatchdog,
+}
 
 impl SecurityScanner {    pub fn new() -> Result<Self> {
         let emergency_stop = EmergencyStop::new()?;
