@@ -3,7 +3,35 @@
 //! This crate provides comprehensive security analysis tools for Stellar Soroban contracts,
 //! including vulnerability detection, invariant checking, and best practices enforcement.
 
-// === Core types that compile cleanly ===
+// === Clean modules (always compiled, no feature gate needed) ===
+
+pub mod address_filter;
+pub use address_filter::{
+    AddressCategory, AddressEntry, AddressFilter, AddressFilterConfig, AddressFilterStats,
+    AddressFormat, FilterAction, FilterResult, ListType, StellarExpertFeed, StellarGuardFeed,
+    ThreatIntelFeed, ThreatIntelFeedConfig, ThreatIntelFeedStatus, ThreatIntelRefreshSummary,
+};
+
+pub mod error_handler;
+
+pub mod audit_trail;
+pub use audit_trail::{
+    ActorContext, AuditAction, AuditCategory, AuditConfig, AuditEvent, AuditEventBuilder,
+    AuditOutcome, AuditQuery, AuditSeverity, AuditTrail, ChainVerification,
+    SuspiciousActivityAlert, UserRole,
+};
+
+pub mod scan_access_control;
+pub use scan_access_control::{
+    ScanAccessAction, ScanAccessControl, ScanAccessControlConfig, ScanAccessError,
+    ScanAccessLogEntry, ScanAccessMetadata, ScanAccessRole, ScanOwnershipGuard, ScanRecord,
+    ScanSeveritySummary, ScanStatus, ShareScanRequest, ShareScanResponse,
+};
+
+#[cfg(test)]
+mod scan_access_control_tests;
+
+// === Core types (shared by clean modules) ===
 
 #[derive(Debug, Clone)]
 pub struct ScanResult {
@@ -51,48 +79,11 @@ impl Severity {
     }
 }
 
-// === Clean modules (no feature gate needed) ===
-// The api_versioning module compiles cleanly without the broken-modules feature.
-pub mod api_versioning;
-pub mod error_handler;
-
-// Comprehensive audit trail for security-critical operations (#326). Compiles
-// cleanly with no feature gate so its tests run under default `cargo test`.
-pub mod audit_trail;
-pub use audit_trail::{
-    ActorContext, AuditAction, AuditCategory, AuditConfig, AuditEvent, AuditEventBuilder,
-    AuditOutcome, AuditQuery, AuditSeverity, AuditTrail, ChainVerification,
-    SuspiciousActivityAlert, UserRole,
-};
-
-// Input sanitization & validation for contract-code uploads (issue #330).
-// Self-contained and compiles cleanly under default features.
-pub mod upload_sanitization;
-
-// Scan access control & ownership verification (issue #329).
-// Self-contained RBAC, ownership checks, scan sharing, and audit logging
-// to prevent Insecure Direct Object Reference (IDOR) vulnerabilities.
-pub mod scan_access_control;
-pub use scan_access_control::{
-    ScanAccessAction, ScanAccessControl, ScanAccessControlConfig, ScanAccessError,
-    ScanAccessLogEntry, ScanAccessMetadata, ScanAccessRole, ScanOwnershipGuard, ScanRecord,
-    ScanSeveritySummary, ScanStatus, ShareScanRequest, ShareScanResponse,
-};
-
-#[cfg(test)]
-mod scan_access_control_tests;
-
-// Secure database connection pooling, TLS, monitoring and replica routing
-// (issue #331). Self-contained and compiles cleanly under default features.
-pub mod db_pool;
-
 // === Broken modules gated behind feature flag ===
 // Each module has pre-existing compilation errors (borrow checker violations,
 // missing trait impls, type mismatches, unresolved imports) that are being
 // fixed incrementally. Enable "broken-modules" feature to include them.
 
-#[cfg(feature = "broken-modules")]
-pub mod address_filter;
 #[cfg(feature = "broken-modules")]
 pub mod analysis;
 #[cfg(feature = "broken-modules")]

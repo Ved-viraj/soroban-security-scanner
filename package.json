@@ -11,8 +11,8 @@
     "test:a11y": "playwright test tests/e2e/accessibility.spec.js",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
-    "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx}\" \"frontend/**/*.{js,jsx,ts,tsx}\"",
-    "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx}\" \"frontend/**/*.{js,jsx,ts,tsx}\"",
+    "format": "npx prettier --write \"src/**/*.{js,jsx,ts,tsx}\" \"frontend/**/*.{js,jsx,ts,tsx}\"",
+    "format:check": "npx prettier --check \"src/**/*.{js,jsx,ts,tsx}\" \"frontend/**/*.{js,jsx,ts,tsx}\"",
     "build:components": "cd component-library && npm run build",
     "dev:components": "cd component-library && npm run dev",
     "install:components": "cd component-library && npm install",
@@ -45,6 +45,10 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^8.57.0",
+    "prettier": "3.8.4",
+    "@playwright/test": "^1.44.0",
     "@axe-core/playwright": "^4.9.1",
     "@chromatic-com/storybook": "^1.0.0",
     "@playwright/test": "^1.44.0",
