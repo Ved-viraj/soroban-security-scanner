@@ -284,9 +284,9 @@ impl ThreatIntelFeed for StellarExpertFeed {
             records: Vec<StellarExpertEntry>,
         }
 
-        let parsed: StellarExpertResponse = response.json().map_err(|e| {
-            anyhow!("Failed to parse StellarExpert response: {}", e)
-        })?;
+        let parsed: StellarExpertResponse = response
+            .json()
+            .map_err(|e| anyhow!("Failed to parse StellarExpert response: {}", e))?;
 
         let records = parsed.embedded.map(|e| e.records).unwrap_or_default();
 
@@ -370,9 +370,9 @@ impl ThreatIntelFeed for StellarExpertFeed {
             records: Vec<StellarExpertEntry>,
         }
 
-        let parsed: StellarExpertResponse = response.json().map_err(|e| {
-            anyhow!("Failed to parse StellarExpert response: {}", e)
-        })?;
+        let parsed: StellarExpertResponse = response
+            .json()
+            .map_err(|e| anyhow!("Failed to parse StellarExpert response: {}", e))?;
 
         let records = parsed.embedded.map(|e| e.records).unwrap_or_default();
 
@@ -411,7 +411,11 @@ impl ThreatIntelFeed for StellarExpertFeed {
     }
 
     fn last_fetch_count(&self) -> usize {
-        self.last_fetch_count.lock().ok().map(|lfc| *lfc).unwrap_or(0)
+        self.last_fetch_count
+            .lock()
+            .ok()
+            .map(|lfc| *lfc)
+            .unwrap_or(0)
     }
 }
 
@@ -493,9 +497,9 @@ impl ThreatIntelFeed for StellarGuardFeed {
             addresses: Vec<StellarGuardEntry>,
         }
 
-        let parsed: StellarGuardResponse = response.json().map_err(|e| {
-            anyhow!("Failed to parse StellarGuard response: {}", e)
-        })?;
+        let parsed: StellarGuardResponse = response
+            .json()
+            .map_err(|e| anyhow!("Failed to parse StellarGuard response: {}", e))?;
 
         let entries: Vec<AddressEntry> = parsed
             .addresses
@@ -533,10 +537,7 @@ impl ThreatIntelFeed for StellarGuardFeed {
     }
 
     fn health_check(&self) -> Result<bool> {
-        let url = format!(
-            "{}/health",
-            self.config.endpoint_url.trim_end_matches('/')
-        );
+        let url = format!("{}/health", self.config.endpoint_url.trim_end_matches('/'));
         match self.client.get(&url).send() {
             Ok(response) => Ok(response.status().is_success()),
             Err(_) => Ok(false),
@@ -548,7 +549,11 @@ impl ThreatIntelFeed for StellarGuardFeed {
     }
 
     fn last_fetch_count(&self) -> usize {
-        self.last_fetch_count.lock().ok().map(|lfc| *lfc).unwrap_or(0)
+        self.last_fetch_count
+            .lock()
+            .ok()
+            .map(|lfc| *lfc)
+            .unwrap_or(0)
     }
 }
 
@@ -992,17 +997,22 @@ impl AddressFilter {
 
         for feed in &self.feeds {
             // Resolve feed config for this feed
-            let feed_config = self.config.threat_intel_feeds
+            let feed_config = self
+                .config
+                .threat_intel_feeds
                 .iter()
                 .find(|fc| fc.name == feed.name())
                 .cloned();
-            let max_entries = feed_config.as_ref()
+            let max_entries = feed_config
+                .as_ref()
                 .map(|fc| fc.max_entries_per_fetch)
                 .unwrap_or(5000);
-            let include_malicious = feed_config.as_ref()
+            let include_malicious = feed_config
+                .as_ref()
                 .map(|fc| fc.include_malicious)
                 .unwrap_or(true);
-            let include_trusted = feed_config.as_ref()
+            let include_trusted = feed_config
+                .as_ref()
                 .map(|fc| fc.include_trusted)
                 .unwrap_or(false);
 
@@ -1087,7 +1097,9 @@ impl AddressFilter {
             if feed_name.is_empty() {
                 continue;
             }
-            let count = self.entries.values()
+            let count = self
+                .entries
+                .values()
                 .filter(|e| e.source.starts_with(&feed_name))
                 .count();
             self.feed_entry_counts.insert(feed_name, count);
@@ -1185,7 +1197,9 @@ impl AddressFilter {
 
     /// Get statistics about the address filter
     pub fn get_stats(&self) -> AddressFilterStats {
-        let feed_sourced = self.entries.values()
+        let feed_sourced = self
+            .entries
+            .values()
             .filter(|e| {
                 e.source.starts_with("stellar_expert") || e.source.starts_with("stellar_guard")
             })
@@ -1379,7 +1393,9 @@ mod tests {
     #[test]
     fn test_address_pattern_matching() {
         let mut filter = AddressFilter::new();
-        filter.add_pattern(r"^MALICIOUS", FilterAction::Block).unwrap();
+        filter
+            .add_pattern(r"^MALICIOUS", FilterAction::Block)
+            .unwrap();
 
         let result = filter.filter_address("MALICIOUS_ADDR");
         assert_eq!(result.action, FilterAction::Block);
@@ -1444,7 +1460,11 @@ mod tests {
         }
 
         fn last_fetch_count(&self) -> usize {
-            self.last_fetch_count.lock().ok().map(|lfc| *lfc).unwrap_or(0)
+            self.last_fetch_count
+                .lock()
+                .ok()
+                .map(|lfc| *lfc)
+                .unwrap_or(0)
         }
     }
 
@@ -1453,11 +1473,7 @@ mod tests {
         let mut filter = AddressFilter::new();
         assert_eq!(filter.feed_count(), 0);
 
-        let mock_feed = Box::new(MockThreatIntelFeed::new(
-            "test_feed",
-            vec![],
-            vec![],
-        ));
+        let mock_feed = Box::new(MockThreatIntelFeed::new("test_feed", vec![], vec![]));
         filter.add_feed(mock_feed);
         assert_eq!(filter.feed_count(), 1);
     }
@@ -1554,11 +1570,7 @@ mod tests {
     fn test_get_all_feed_statuses() {
         let mut filter = AddressFilter::new();
 
-        let mock_feed = Box::new(MockThreatIntelFeed::new(
-            "status_test_feed",
-            vec![],
-            vec![],
-        ));
+        let mock_feed = Box::new(MockThreatIntelFeed::new("status_test_feed", vec![], vec![]));
         filter.add_feed(mock_feed);
 
         let statuses = filter.get_all_feed_statuses();

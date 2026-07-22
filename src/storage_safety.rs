@@ -872,7 +872,9 @@ pub fn run_storage_audit(old_wasm_path: &str, new_wasm_path: &str) -> Result<()>
         eprintln!("   Fix the critical issues before proceeding with the upgrade.");
         std::process::exit(1);
     } else if report.migration_required {
-        println!("\n⚠️  Storage safety audit passed with warnings. Review the warnings before upgrading.");
+        println!(
+            "\n⚠️  Storage safety audit passed with warnings. Review the warnings before upgrading."
+        );
     } else {
         println!("\n✅ Storage safety audit PASSED. No issues detected.");
     }

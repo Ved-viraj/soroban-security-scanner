@@ -7,11 +7,9 @@
 
 pub mod address_filter;
 pub use address_filter::{
-    AddressEntry, AddressCategory, AddressFormat, AddressFilter, AddressFilterConfig,
-    AddressFilterStats, FilterAction, FilterResult, ListType,
-    ThreatIntelFeed, ThreatIntelFeedConfig, ThreatIntelFeedStatus,
-    ThreatIntelRefreshSummary,
-    StellarExpertFeed, StellarGuardFeed,
+    AddressCategory, AddressEntry, AddressFilter, AddressFilterConfig, AddressFilterStats,
+    AddressFormat, FilterAction, FilterResult, ListType, StellarExpertFeed, StellarGuardFeed,
+    ThreatIntelFeed, ThreatIntelFeedConfig, ThreatIntelFeedStatus, ThreatIntelRefreshSummary,
 };
 
 pub mod error_handler;
