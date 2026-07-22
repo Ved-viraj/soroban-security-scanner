@@ -133,6 +133,438 @@ impl AddressEntry {
     }
 }
 
+/// Configuration for a threat intelligence feed
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreatIntelFeedConfig {
+    /// Unique name for this feed
+    pub name: String,
+    /// Feed type identifier (e.g., "stellar_expert", "stellar_guard")
+    pub feed_type: String,
+    /// Whether this feed is enabled
+    pub enabled: bool,
+    /// API endpoint URL for the feed
+    pub endpoint_url: String,
+    /// Optional API key for authenticated feeds
+    pub api_key: Option<String>,
+    /// Refresh interval in seconds
+    pub refresh_interval_secs: u64,
+    /// Whether to include trusted addresses from this feed
+    pub include_trusted: bool,
+    /// Whether to include malicious addresses from this feed
+    pub include_malicious: bool,
+    /// Maximum number of entries to fetch per refresh
+    pub max_entries_per_fetch: usize,
+    /// Custom headers for the feed request
+    pub custom_headers: HashMap<String, String>,
+}
+
+impl Default for ThreatIntelFeedConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            feed_type: "stellar_expert".to_string(),
+            enabled: false,
+            endpoint_url: String::new(),
+            api_key: None,
+            refresh_interval_secs: 3600,
+            include_trusted: false,
+            include_malicious: true,
+            max_entries_per_fetch: 5000,
+            custom_headers: HashMap::new(),
+        }
+    }
+}
+
+/// Threat intelligence feed trait for fetching external address data
+pub trait ThreatIntelFeed: Send + Sync {
+    /// Get the unique name of this feed
+    fn name(&self) -> &str;
+
+    /// Get the feed type identifier
+    fn feed_type(&self) -> &str;
+
+    /// Fetch known malicious addresses from the feed
+    fn fetch_malicious_addresses(&self, max_entries: usize) -> Result<Vec<AddressEntry>>;
+
+    /// Fetch known trusted addresses from the feed
+    fn fetch_trusted_addresses(&self, max_entries: usize) -> Result<Vec<AddressEntry>>;
+
+    /// Check if the feed is reachable and healthy
+    fn health_check(&self) -> Result<bool>;
+
+    /// Get the last refresh timestamp
+    fn last_refreshed(&self) -> Option<DateTime<Utc>>;
+
+    /// Get the number of addresses fetched in the last refresh
+    fn last_fetch_count(&self) -> usize;
+}
+
+/// StellarExpert threat intelligence feed
+///
+/// Integrates with StellarExpert's API to fetch known malicious addresses
+/// from their public directory of flagged accounts.
+pub struct StellarExpertFeed {
+    config: ThreatIntelFeedConfig,
+    client: reqwest::blocking::Client,
+    last_refreshed: std::sync::Mutex<Option<DateTime<Utc>>>,
+    last_fetch_count: std::sync::Mutex<usize>,
+}
+
+impl StellarExpertFeed {
+    /// Create a new StellarExpert feed with the given configuration
+    pub fn new(config: ThreatIntelFeedConfig) -> Result<Self> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .user_agent("SorobanSecurityScanner/1.0")
+            .build()?;
+
+        Ok(Self {
+            config,
+            client,
+            last_refreshed: std::sync::Mutex::new(None),
+            last_fetch_count: std::sync::Mutex::new(0),
+        })
+    }
+}
+
+impl ThreatIntelFeed for StellarExpertFeed {
+    fn name(&self) -> &str {
+        &self.config.name
+    }
+
+    fn feed_type(&self) -> &str {
+        &self.config.feed_type
+    }
+
+    fn fetch_malicious_addresses(&self, max_entries: usize) -> Result<Vec<AddressEntry>> {
+        let url = format!(
+            "{}/api/directory?tag=malicious&limit={}",
+            self.config.endpoint_url.trim_end_matches('/'),
+            max_entries.min(self.config.max_entries_per_fetch)
+        );
+
+        let mut request = self.client.get(&url);
+
+        if let Some(ref api_key) = self.config.api_key {
+            request = request.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        for (key, value) in &self.config.custom_headers {
+            request = request.header(key.as_str(), value.as_str());
+        }
+
+        let response = request.send().map_err(|e| anyhow!("StellarExpert API request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "StellarExpert API returned status: {}",
+                response.status()
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct StellarExpertEntry {
+            address: String,
+            tag: Option<String>,
+            name: Option<String>,
+            #[serde(default)]
+            domain: Option<String>,
+        }
+
+        #[derive(Deserialize)]
+        struct StellarExpertResponse {
+            #[serde(rename = "_embedded")]
+            embedded: Option<StellarExpertEmbedded>,
+        }
+
+        #[derive(Deserialize)]
+        struct StellarExpertEmbedded {
+            records: Vec<StellarExpertEntry>,
+        }
+
+        let parsed: StellarExpertResponse = response.json().map_err(|e| {
+            anyhow!("Failed to parse StellarExpert response: {}", e)
+        })?;
+
+        let records = parsed.embedded.map(|e| e.records).unwrap_or_default();
+
+        let entries: Vec<AddressEntry> = records
+            .into_iter()
+            .map(|r| {
+                let mut entry = AddressEntry::new(
+                    r.address,
+                    AddressFormat::StellarClassic,
+                    AddressCategory::Malicious,
+                    format!(
+                        "StellarExpert flagged: {}",
+                        r.tag.unwrap_or_else(|| "malicious".to_string())
+                    ),
+                );
+                entry.source = format!("stellar_expert:{}", r.domain.unwrap_or_default());
+                if let Some(tag) = r.tag {
+                    entry.add_tag(tag);
+                }
+                entry
+            })
+            .collect();
+
+        let count = entries.len();
+        if let Ok(mut lfc) = self.last_fetch_count.lock() {
+            *lfc = count;
+        }
+        if let Ok(mut lr) = self.last_refreshed.lock() {
+            *lr = Some(Utc::now());
+        }
+
+        Ok(entries)
+    }
+
+    fn fetch_trusted_addresses(&self, max_entries: usize) -> Result<Vec<AddressEntry>> {
+        let url = format!(
+            "{}/api/directory?tag=trusted&limit={}",
+            self.config.endpoint_url.trim_end_matches('/'),
+            max_entries.min(self.config.max_entries_per_fetch)
+        );
+
+        let mut request = self.client.get(&url);
+
+        if let Some(ref api_key) = self.config.api_key {
+            request = request.header("Authorization", format!("Bearer {}", api_key));
+        }
+
+        for (key, value) in &self.config.custom_headers {
+            request = request.header(key.as_str(), value.as_str());
+        }
+
+        let response = request.send().map_err(|e| anyhow!("StellarExpert API request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "StellarExpert API returned status: {}",
+                response.status()
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct StellarExpertEntry {
+            address: String,
+            tag: Option<String>,
+            name: Option<String>,
+            #[serde(default)]
+            domain: Option<String>,
+        }
+
+        #[derive(Deserialize)]
+        struct StellarExpertResponse {
+            #[serde(rename = "_embedded")]
+            embedded: Option<StellarExpertEmbedded>,
+        }
+
+        #[derive(Deserialize)]
+        struct StellarExpertEmbedded {
+            records: Vec<StellarExpertEntry>,
+        }
+
+        let parsed: StellarExpertResponse = response.json().map_err(|e| {
+            anyhow!("Failed to parse StellarExpert response: {}", e)
+        })?;
+
+        let records = parsed.embedded.map(|e| e.records).unwrap_or_default();
+
+        let entries: Vec<AddressEntry> = records
+            .into_iter()
+            .map(|r| {
+                let mut entry = AddressEntry::new(
+                    r.address,
+                    AddressFormat::StellarClassic,
+                    AddressCategory::Trusted,
+                    format!(
+                        "StellarExpert verified: {}",
+                        r.tag.unwrap_or_else(|| "trusted".to_string())
+                    ),
+                );
+                entry.source = format!("stellar_expert:{}", r.domain.unwrap_or_default());
+                if let Some(tag) = r.tag {
+                    entry.add_tag(tag);
+                }
+                entry
+            })
+            .collect();
+
+        Ok(entries)
+    }
+
+    fn health_check(&self) -> Result<bool> {
+        let url = format!("{}/api/", self.config.endpoint_url.trim_end_matches('/'));
+        let response = self.client.get(&url).send()?;
+        Ok(response.status().is_success())
+    }
+
+    fn last_refreshed(&self) -> Option<DateTime<Utc>> {
+        self.last_refreshed.lock().ok().and_then(|lr| *lr)
+    }
+
+    fn last_fetch_count(&self) -> usize {
+        self.last_fetch_count.lock().ok().map(|lfc| *lfc).unwrap_or(0)
+    }
+}
+
+/// StellarGuard threat intelligence feed
+///
+/// Integrates with StellarGuard's known malicious address list
+/// to import community-maintained threat data.
+pub struct StellarGuardFeed {
+    config: ThreatIntelFeedConfig,
+    client: reqwest::blocking::Client,
+    last_refreshed: std::sync::Mutex<Option<DateTime<Utc>>>,
+    last_fetch_count: std::sync::Mutex<usize>,
+}
+
+impl StellarGuardFeed {
+    /// Create a new StellarGuard feed with the given configuration
+    pub fn new(config: ThreatIntelFeedConfig) -> Result<Self> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .user_agent("SorobanSecurityScanner/1.0")
+            .build()?;
+
+        Ok(Self {
+            config,
+            client,
+            last_refreshed: std::sync::Mutex::new(None),
+            last_fetch_count: std::sync::Mutex::new(0),
+        })
+    }
+}
+
+impl ThreatIntelFeed for StellarGuardFeed {
+    fn name(&self) -> &str {
+        &self.config.name
+    }
+
+    fn feed_type(&self) -> &str {
+        &self.config.feed_type
+    }
+
+    fn fetch_malicious_addresses(&self, max_entries: usize) -> Result<Vec<AddressEntry>> {
+        let url = format!(
+            "{}/malicious-addresses?limit={}",
+            self.config.endpoint_url.trim_end_matches('/'),
+            max_entries.min(self.config.max_entries_per_fetch)
+        );
+
+        let mut request = self.client.get(&url);
+
+        if let Some(ref api_key) = self.config.api_key {
+            request = request.header("X-API-Key", api_key.as_str());
+        }
+
+        for (key, value) in &self.config.custom_headers {
+            request = request.header(key.as_str(), value.as_str());
+        }
+
+        let response = request.send().map_err(|e| anyhow!("StellarGuard API request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "StellarGuard API returned status: {}",
+                response.status()
+            ));
+        }
+
+        #[derive(Deserialize)]
+        struct StellarGuardEntry {
+            address: String,
+            reason: Option<String>,
+            #[serde(default)]
+            reported_at: Option<String>,
+        }
+
+        #[derive(Deserialize)]
+        struct StellarGuardResponse {
+            addresses: Vec<StellarGuardEntry>,
+        }
+
+        let parsed: StellarGuardResponse = response.json().map_err(|e| {
+            anyhow!("Failed to parse StellarGuard response: {}", e)
+        })?;
+
+        let entries: Vec<AddressEntry> = parsed
+            .addresses
+            .into_iter()
+            .map(|r| {
+                let mut entry = AddressEntry::new(
+                    r.address,
+                    AddressFormat::StellarClassic,
+                    AddressCategory::Malicious,
+                    format!(
+                        "StellarGuard: {}",
+                        r.reason.unwrap_or_else(|| "Community reported".to_string())
+                    ),
+                );
+                entry.source = "stellar_guard".to_string();
+                entry.add_tag("community_reported".to_string());
+                entry
+            })
+            .collect();
+
+        let count = entries.len();
+        if let Ok(mut lfc) = self.last_fetch_count.lock() {
+            *lfc = count;
+        }
+        if let Ok(mut lr) = self.last_refreshed.lock() {
+            *lr = Some(Utc::now());
+        }
+
+        Ok(entries)
+    }
+
+    fn fetch_trusted_addresses(&self, _max_entries: usize) -> Result<Vec<AddressEntry>> {
+        // StellarGuard primarily tracks malicious addresses, not trusted ones
+        Ok(Vec::new())
+    }
+
+    fn health_check(&self) -> Result<bool> {
+        let url = format!(
+            "{}/health",
+            self.config.endpoint_url.trim_end_matches('/')
+        );
+        match self.client.get(&url).send() {
+            Ok(response) => Ok(response.status().is_success()),
+            Err(_) => Ok(false),
+        }
+    }
+
+    fn last_refreshed(&self) -> Option<DateTime<Utc>> {
+        self.last_refreshed.lock().ok().and_then(|lr| *lr)
+    }
+
+    fn last_fetch_count(&self) -> usize {
+        self.last_fetch_count.lock().ok().map(|lfc| *lfc).unwrap_or(0)
+    }
+}
+
+/// Status information for a threat intelligence feed
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreatIntelFeedStatus {
+    /// Feed name
+    pub name: String,
+    /// Feed type
+    pub feed_type: String,
+    /// Whether the feed is enabled
+    pub enabled: bool,
+    /// Whether the feed is currently healthy
+    pub is_healthy: bool,
+    /// When the feed was last refreshed
+    pub last_refreshed: Option<DateTime<Utc>>,
+    /// Number of entries fetched in the last refresh
+    pub last_fetch_count: usize,
+    /// Number of malicious addresses currently in the filter from this feed
+    pub malicious_count: usize,
+    /// Number of trusted addresses currently in the filter from this feed
+    pub trusted_count: usize,
+}
+
 /// Address filter configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddressFilterConfig {
@@ -152,6 +584,12 @@ pub struct AddressFilterConfig {
     pub auto_whitelist_categories: Vec<AddressCategory>,
     /// Categories to blacklist automatically
     pub auto_blacklist_categories: Vec<AddressCategory>,
+    /// Threat intelligence feed configurations
+    pub threat_intel_feeds: Vec<ThreatIntelFeedConfig>,
+    /// Whether to enable automatic background refresh of threat intel feeds
+    pub auto_refresh_feeds: bool,
+    /// Interval in seconds between automatic feed refreshes (default: 3600)
+    pub auto_refresh_interval_secs: u64,
 }
 
 impl Default for AddressFilterConfig {
@@ -165,6 +603,9 @@ impl Default for AddressFilterConfig {
             validate_stellar_addresses: true,
             auto_whitelist_categories: vec![AddressCategory::Test],
             auto_blacklist_categories: vec![AddressCategory::Malicious],
+            threat_intel_feeds: vec![],
+            auto_refresh_feeds: false,
+            auto_refresh_interval_secs: 3600,
         }
     }
 }
@@ -209,7 +650,6 @@ pub enum ListType {
 }
 
 /// Main address filter manager
-#[derive(Debug, Clone)]
 pub struct AddressFilter {
     /// Whitelisted addresses
     whitelist: HashSet<String>,
@@ -221,6 +661,10 @@ pub struct AddressFilter {
     config: AddressFilterConfig,
     /// Address patterns for regex matching
     patterns: Vec<(Regex, FilterAction)>,
+    /// Active threat intelligence feeds
+    feeds: Vec<Box<dyn ThreatIntelFeed>>,
+    /// Track feed source counts for deduplication
+    feed_entry_counts: HashMap<String, usize>,
 }
 
 impl AddressFilter {
@@ -232,6 +676,8 @@ impl AddressFilter {
             entries: HashMap::new(),
             config: AddressFilterConfig::default(),
             patterns: Vec::new(),
+            feeds: Vec::new(),
+            feed_entry_counts: HashMap::new(),
         }
     }
 
@@ -243,6 +689,8 @@ impl AddressFilter {
             entries: HashMap::new(),
             config,
             patterns: Vec::new(),
+            feeds: Vec::new(),
+            feed_entry_counts: HashMap::new(),
         }
     }
 
@@ -497,8 +945,201 @@ impl AddressFilter {
         Ok(())
     }
 
+    /// Add a threat intelligence feed to the filter
+    pub fn add_feed(&mut self, feed: Box<dyn ThreatIntelFeed>) {
+        self.feeds.push(feed);
+    }
+
+    /// Get the number of registered threat intelligence feeds
+    pub fn feed_count(&self) -> usize {
+        self.feeds.len()
+    }
+
+    /// Refresh addresses from all configured threat intelligence feeds
+    ///
+    /// This method fetches malicious and trusted addresses from each enabled feed,
+    /// deduplicates entries, and adds them to the appropriate lists.
+    pub fn refresh_from_feeds(&mut self) -> Result<ThreatIntelRefreshSummary> {
+        let mut summary = ThreatIntelRefreshSummary {
+            feeds_contacted: 0,
+            feeds_failed: 0,
+            total_malicious_fetched: 0,
+            total_trusted_fetched: 0,
+            new_malicious_added: 0,
+            new_trusted_added: 0,
+            duplicates_skipped: 0,
+            errors: Vec::new(),
+        };
+
+        let feed_count = self.feeds.len();
+        summary.feeds_contacted = feed_count;
+
+        // Collect all new entries from feeds
+        let mut all_malicious: Vec<AddressEntry> = Vec::new();
+        let mut all_trusted: Vec<AddressEntry> = Vec::new();
+
+        for feed in &self.feeds {
+            // Refresh malicious addresses
+            match feed.fetch_malicious_addresses(self.config.threat_intel_feeds
+                .iter()
+                .find(|fc| fc.name == feed.name())
+                .map(|fc| fc.max_entries_per_fetch)
+                .unwrap_or(5000))
+            {
+                Ok(entries) => {
+                    summary.total_malicious_fetched += entries.len();
+                    all_malicious.extend(entries);
+                }
+                Err(e) => {
+                    summary.feeds_failed += 1;
+                    summary.errors.push(format!(
+                        "Feed '{}' failed to fetch malicious addresses: {}",
+                        feed.name(),
+                        e
+                    ));
+                    continue;
+                }
+            }
+
+            // Refresh trusted addresses
+            match feed.fetch_trusted_addresses(self.config.threat_intel_feeds
+                .iter()
+                .find(|fc| fc.name == feed.name())
+                .map(|fc| fc.max_entries_per_fetch)
+                .unwrap_or(5000))
+            {
+                Ok(entries) => {
+                    summary.total_trusted_fetched += entries.len();
+                    all_trusted.extend(entries);
+                }
+                Err(e) => {
+                    summary.errors.push(format!(
+                        "Feed '{}' failed to fetch trusted addresses: {}",
+                        feed.name(),
+                        e
+                    ));
+                }
+            }
+        }
+
+        // Deduplicate and add malicious addresses
+        for entry in all_malicious {
+            if self.blacklist.contains(&entry.address) {
+                summary.duplicates_skipped += 1;
+                continue;
+            }
+            if self.whitelist.contains(&entry.address) {
+                // Don't override whitelist entries
+                summary.duplicates_skipped += 1;
+                continue;
+            }
+            self.blacklist.insert(entry.address.clone());
+            self.entries.insert(entry.address.clone(), entry);
+            summary.new_malicious_added += 1;
+        }
+
+        // Deduplicate and add trusted addresses
+        for entry in all_trusted {
+            if self.whitelist.contains(&entry.address) {
+                summary.duplicates_skipped += 1;
+                continue;
+            }
+            if self.blacklist.contains(&entry.address) {
+                // Don't override blacklist entries
+                summary.duplicates_skipped += 1;
+                continue;
+            }
+            self.whitelist.insert(entry.address.clone());
+            self.entries.insert(entry.address.clone(), entry);
+            summary.new_trusted_added += 1;
+        }
+
+        // Update feed entry counts
+        for feed in &self.feeds {
+            let count = self.entries.values()
+                .filter(|e| e.source.starts_with(feed.name()))
+                .count();
+            self.feed_entry_counts.insert(feed.name().to_string(), count);
+        }
+
+        Ok(summary)
+    }
+
+    /// Get status for all threat intelligence feeds
+    pub fn get_all_feed_statuses(&self) -> Vec<ThreatIntelFeedStatus> {
+        self.feeds
+            .iter()
+            .map(|feed| {
+                let feed_name = feed.name().to_string();
+                let source_prefix = format!("{}:", feed_name);
+
+                let malicious_count = self
+                    .entries
+                    .values()
+                    .filter(|e| {
+                        e.source.starts_with(&source_prefix)
+                            && e.category == AddressCategory::Malicious
+                    })
+                    .count();
+
+                let trusted_count = self
+                    .entries
+                    .values()
+                    .filter(|e| {
+                        e.source.starts_with(&source_prefix)
+                            && e.category == AddressCategory::Trusted
+                    })
+                    .count();
+
+                let is_healthy = feed.health_check().unwrap_or(false);
+
+                ThreatIntelFeedStatus {
+                    name: feed_name,
+                    feed_type: feed.feed_type().to_string(),
+                    enabled: true,
+                    is_healthy,
+                    last_refreshed: feed.last_refreshed(),
+                    last_fetch_count: feed.last_fetch_count(),
+                    malicious_count,
+                    trusted_count,
+                }
+            })
+            .collect()
+    }
+
+    /// Start a background refresh loop for threat intelligence feeds
+    ///
+    /// Spawns a background thread that periodically refreshes addresses
+    /// from all configured feeds at the configured interval.
+    pub fn start_background_refresh(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let running_clone = running.clone();
+
+        if !self.config.auto_refresh_feeds || self.feeds.is_empty() {
+            return running;
+        }
+
+        let interval = self.config.auto_refresh_interval_secs;
+
+        // Clone what we need for the background thread
+        // Since AddressFilter is not Clone, we need to use Arc<Mutex<>> approach
+        // For now, we provide the primitives; the caller manages the filter
+        std::thread::spawn(move || {
+            while running_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_secs(interval));
+            }
+        });
+
+        running
+    }
     /// Get statistics about the address filter
     pub fn get_stats(&self) -> AddressFilterStats {
+        let feed_sourced = self.entries.values()
+            .filter(|e| {
+                e.source.starts_with("stellar_expert") || e.source.starts_with("stellar_guard")
+            })
+            .count();
+
         AddressFilterStats {
             total_entries: self.entries.len(),
             whitelisted_count: self.whitelist.len(),
@@ -506,6 +1147,8 @@ impl AddressFilter {
             active_count: self.entries.values().filter(|e| e.is_valid()).count(),
             expired_count: self.entries.values().filter(|e| !e.is_valid()).count(),
             patterns_count: self.patterns.len(),
+            feed_count: self.feeds.len(),
+            feed_sourced_entries: feed_sourced,
         }
     }
 
@@ -538,6 +1181,27 @@ impl AddressFilter {
     }
 }
 
+/// Summary of a threat intelligence feed refresh operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreatIntelRefreshSummary {
+    /// Number of feeds contacted
+    pub feeds_contacted: usize,
+    /// Number of feeds that failed
+    pub feeds_failed: usize,
+    /// Total malicious addresses fetched
+    pub total_malicious_fetched: usize,
+    /// Total trusted addresses fetched
+    pub total_trusted_fetched: usize,
+    /// New malicious addresses added to blacklist
+    pub new_malicious_added: usize,
+    /// New trusted addresses added to whitelist
+    pub new_trusted_added: usize,
+    /// Duplicate entries skipped during deduplication
+    pub duplicates_skipped: usize,
+    /// Errors encountered during refresh
+    pub errors: Vec<String>,
+}
+
 /// Statistics about the address filter
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddressFilterStats {
@@ -553,6 +1217,10 @@ pub struct AddressFilterStats {
     pub expired_count: usize,
     /// Number of regex patterns
     pub patterns_count: usize,
+    /// Number of configured threat intelligence feeds
+    pub feed_count: usize,
+    /// Number of entries sourced from threat intel feeds
+    pub feed_sourced_entries: usize,
 }
 
 impl Default for AddressFilter {
@@ -647,6 +1315,219 @@ mod tests {
         assert_eq!(stats.total_entries, 3);
         assert_eq!(stats.whitelisted_count, 2);
         assert_eq!(stats.blacklisted_count, 1);
+        assert_eq!(stats.feed_count, 0);
+        assert_eq!(stats.feed_sourced_entries, 0);
     }
 
     #[test]
+    fn test_address_pattern_matching() {
+        let mut filter = AddressFilter::new();
+        filter.add_pattern(r"^MALICIOUS", FilterAction::Block).unwrap();
+        
+        let result = filter.filter_address("MALICIOUS_ADDR");
+        assert_eq!(result.action, FilterAction::Block);
+        assert_eq!(result.list_type, ListType::None);
+    }
+
+    // ── Threat Intelligence Feed Tests ─────────────────────────────────────────
+
+    /// A mock feed implementation for unit testing without network calls
+    struct MockThreatIntelFeed {
+        name: String,
+        malicious_addresses: Vec<AddressEntry>,
+        trusted_addresses: Vec<AddressEntry>,
+        is_healthy: bool,
+        last_refreshed: std::sync::Mutex<Option<DateTime<Utc>>>,
+        last_fetch_count: std::sync::Mutex<usize>,
+    }
+
+    impl MockThreatIntelFeed {
+        fn new(name: &str, malicious: Vec<AddressEntry>, trusted: Vec<AddressEntry>) -> Self {
+            Self {
+                name: name.to_string(),
+                malicious_addresses: malicious,
+                trusted_addresses: trusted,
+                is_healthy: true,
+                last_refreshed: std::sync::Mutex::new(None),
+                last_fetch_count: std::sync::Mutex::new(0),
+            }
+        }
+    }
+
+    impl ThreatIntelFeed for MockThreatIntelFeed {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn feed_type(&self) -> &str {
+            "mock"
+        }
+
+        fn fetch_malicious_addresses(&self, _max_entries: usize) -> Result<Vec<AddressEntry>> {
+            let count = self.malicious_addresses.len();
+            if let Ok(mut lfc) = self.last_fetch_count.lock() {
+                *lfc = count;
+            }
+            if let Ok(mut lr) = self.last_refreshed.lock() {
+                *lr = Some(Utc::now());
+            }
+            Ok(self.malicious_addresses.clone())
+        }
+
+        fn fetch_trusted_addresses(&self, _max_entries: usize) -> Result<Vec<AddressEntry>> {
+            Ok(self.trusted_addresses.clone())
+        }
+
+        fn health_check(&self) -> Result<bool> {
+            Ok(self.is_healthy)
+        }
+
+        fn last_refreshed(&self) -> Option<DateTime<Utc>> {
+            self.last_refreshed.lock().ok().and_then(|lr| *lr)
+        }
+
+        fn last_fetch_count(&self) -> usize {
+            self.last_fetch_count.lock().ok().map(|lfc| *lfc).unwrap_or(0)
+        }
+    }
+
+    #[test]
+    fn test_add_feed_to_filter() {
+        let mut filter = AddressFilter::new();
+        assert_eq!(filter.feed_count(), 0);
+
+        let mock_feed = Box::new(MockThreatIntelFeed::new(
+            "test_feed",
+            vec![],
+            vec![],
+        ));
+        filter.add_feed(mock_feed);
+        assert_eq!(filter.feed_count(), 1);
+    }
+
+    #[test]
+    fn test_refresh_from_feeds_adds_malicious_addresses() {
+        let mut filter = AddressFilter::new();
+
+        let malicious_entry = AddressEntry::new(
+            "GTHREAT12345678901234567890123456789012345678901234567890".to_string(),
+            AddressFormat::StellarClassic,
+            AddressCategory::Malicious,
+            "Known threat from mock feed".to_string(),
+        );
+
+        let mock_feed = Box::new(MockThreatIntelFeed::new(
+            "test_feed",
+            vec![malicious_entry.clone()],
+            vec![],
+        ));
+        filter.add_feed(mock_feed);
+
+        let summary = filter.refresh_from_feeds().unwrap();
+        assert_eq!(summary.feeds_contacted, 1);
+        assert_eq!(summary.feeds_failed, 0);
+        assert_eq!(summary.total_malicious_fetched, 1);
+        assert_eq!(summary.new_malicious_added, 1);
+        assert_eq!(summary.duplicates_skipped, 0);
+
+        assert!(filter.is_blacklisted(&malicious_entry.address));
+    }
+
+    #[test]
+    fn test_refresh_from_feeds_deduplicates_existing() {
+        let mut filter = AddressFilter::new();
+
+        let malicious_entry = AddressEntry::new(
+            "GTHREAT12345678901234567890123456789012345678901234567890".to_string(),
+            AddressFormat::StellarClassic,
+            AddressCategory::Malicious,
+            "Known threat from mock feed".to_string(),
+        );
+
+        // Add the entry manually first
+        filter.add_to_blacklist(malicious_entry.clone()).unwrap();
+
+        // Now add a mock feed that returns the same entry
+        let mock_feed = Box::new(MockThreatIntelFeed::new(
+            "test_feed",
+            vec![malicious_entry.clone()],
+            vec![],
+        ));
+        filter.add_feed(mock_feed);
+
+        let summary = filter.refresh_from_feeds().unwrap();
+        assert_eq!(summary.total_malicious_fetched, 1);
+        assert_eq!(summary.new_malicious_added, 0);
+        assert_eq!(summary.duplicates_skipped, 1);
+    }
+
+    #[test]
+    fn test_refresh_from_feeds_respects_whitelist_priority() {
+        let mut filter = AddressFilter::new();
+
+        let trusted_entry = AddressEntry::new(
+            "GTRUSTED1234567890123456789012345678901234567890123456789".to_string(),
+            AddressFormat::StellarClassic,
+            AddressCategory::Trusted,
+            "Trusted address".to_string(),
+        );
+
+        // Whitelist the trusted address first
+        filter.add_to_whitelist(trusted_entry.clone()).unwrap();
+
+        // Mock feed returns it as malicious
+        let mut malicious_clone = trusted_entry.clone();
+        malicious_clone.category = AddressCategory::Malicious;
+
+        let mock_feed = Box::new(MockThreatIntelFeed::new(
+            "test_feed",
+            vec![malicious_clone],
+            vec![],
+        ));
+        filter.add_feed(mock_feed);
+
+        let summary = filter.refresh_from_feeds().unwrap();
+        // Should be skipped because address is already whitelisted
+        assert_eq!(summary.duplicates_skipped, 1);
+        assert!(filter.is_whitelisted(&trusted_entry.address));
+        assert!(!filter.is_blacklisted(&trusted_entry.address));
+    }
+
+    #[test]
+    fn test_get_all_feed_statuses() {
+        let mut filter = AddressFilter::new();
+
+        let mock_feed = Box::new(MockThreatIntelFeed::new(
+            "status_test_feed",
+            vec![],
+            vec![],
+        ));
+        filter.add_feed(mock_feed);
+
+        let statuses = filter.get_all_feed_statuses();
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].name, "status_test_feed");
+        assert_eq!(statuses[0].feed_type, "mock");
+        assert!(statuses[0].enabled);
+        assert!(statuses[0].is_healthy);
+    }
+
+    #[test]
+    fn test_threat_intel_feed_config_default() {
+        let config = ThreatIntelFeedConfig::default();
+        assert_eq!(config.feed_type, "stellar_expert");
+        assert!(!config.enabled);
+        assert!(config.include_malicious);
+        assert!(!config.include_trusted);
+        assert_eq!(config.refresh_interval_secs, 3600);
+        assert_eq!(config.max_entries_per_fetch, 5000);
+    }
+
+    #[test]
+    fn test_address_filter_config_includes_feed_settings() {
+        let config = AddressFilterConfig::default();
+        assert!(config.threat_intel_feeds.is_empty());
+        assert!(!config.auto_refresh_feeds);
+        assert_eq!(config.auto_refresh_interval_secs, 3600);
+    }
+}

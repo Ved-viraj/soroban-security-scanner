@@ -4,6 +4,13 @@
 //! including vulnerability detection, invariant checking, and best practices enforcement.
 
 pub mod address_filter;
+pub use address_filter::{
+    AddressEntry, AddressCategory, AddressFormat, AddressFilter, AddressFilterConfig,
+    AddressFilterStats, FilterAction, FilterResult, ListType,
+    ThreatIntelFeed, ThreatIntelFeedConfig, ThreatIntelFeedStatus,
+    ThreatIntelRefreshSummary,
+    StellarExpertFeed, StellarGuardFeed,
+};
 pub mod analysis;
 pub mod audit_proof_of_scan;
 pub mod batch_operations;
