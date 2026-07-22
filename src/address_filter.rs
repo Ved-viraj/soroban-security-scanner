@@ -293,6 +293,7 @@ impl ThreatIntelFeed for StellarExpertFeed {
         let entries: Vec<AddressEntry> = records
             .into_iter()
             .map(|r| {
+                let tag_for_add = r.tag.clone();
                 let mut entry = AddressEntry::new(
                     r.address,
                     AddressFormat::StellarClassic,
@@ -303,7 +304,7 @@ impl ThreatIntelFeed for StellarExpertFeed {
                     ),
                 );
                 entry.source = format!("stellar_expert:{}", r.domain.unwrap_or_default());
-                if let Some(tag) = r.tag {
+                if let Some(tag) = tag_for_add {
                     entry.add_tag(tag);
                 }
                 entry
@@ -378,6 +379,7 @@ impl ThreatIntelFeed for StellarExpertFeed {
         let entries: Vec<AddressEntry> = records
             .into_iter()
             .map(|r| {
+                let tag_for_add = r.tag.clone();
                 let mut entry = AddressEntry::new(
                     r.address,
                     AddressFormat::StellarClassic,
@@ -388,7 +390,7 @@ impl ThreatIntelFeed for StellarExpertFeed {
                     ),
                 );
                 entry.source = format!("stellar_expert:{}", r.domain.unwrap_or_default());
-                if let Some(tag) = r.tag {
+                if let Some(tag) = tag_for_add {
                     entry.add_tag(tag);
                 }
                 entry
