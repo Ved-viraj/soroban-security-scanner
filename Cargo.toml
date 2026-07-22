@@ -84,6 +84,10 @@ redis = { version = "0.23", features = ["tokio-comp"], optional = true }
 # Rate limiting dependencies
 ipnetwork = "0.20"
 
+# AST parsing and code generation (used by scanners)
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
+
 # Additional utilities
 log = "0.4"
 futures = "0.3"
