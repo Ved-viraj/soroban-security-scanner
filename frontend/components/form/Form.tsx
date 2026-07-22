@@ -47,6 +47,7 @@ export function Form<T extends Record<string, any>>({
   const prevErrorCountRef = useRef(0);
 
   // Announce error summary changes to screen readers
+  const errorsKey = JSON.stringify(errors);
   useEffect(() => {
     const errorEntries = Object.entries(errors).filter(([, msg]) => !!msg);
     const currentErrorCount = errorEntries.length;
@@ -61,7 +62,8 @@ export function Form<T extends Record<string, any>>({
     }
 
     prevErrorCountRef.current = currentErrorCount;
-  }, [errors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorsKey]);
 
   const wrappedOnSubmit = async (data: T) => {
     await onSubmit(data);

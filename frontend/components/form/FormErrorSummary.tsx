@@ -46,8 +46,7 @@ export function FormErrorSummary({
             <ul className="list-disc list-inside space-y-1">
               {filteredErrors.map(([field, error]) => (
                 <li key={field}>
-                  <span className="font-medium capitalize">{field.replace(/([A-Z])/g, ' $1').trim()}:</span>{' '}
-                  <span id={`${field}-error-description`}>{error}</span>
+                  <span className="font-medium capitalize">{field.replace(/([A-Z])/g, ' $1').trim()}:</span> {error}
                 </li>
               ))}
             </ul>
