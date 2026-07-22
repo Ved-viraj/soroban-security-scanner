@@ -3,6 +3,8 @@
 //! This crate provides comprehensive security analysis tools for Stellar Soroban contracts,
 //! including vulnerability detection, invariant checking, and best practices enforcement.
 
+// === Clean modules (always compiled, no feature gate needed) ===
+
 pub mod address_filter;
 pub use address_filter::{
     AddressEntry, AddressCategory, AddressFormat, AddressFilter, AddressFilterConfig,
@@ -11,83 +13,46 @@ pub use address_filter::{
     ThreatIntelRefreshSummary,
     StellarExpertFeed, StellarGuardFeed,
 };
-pub mod analysis;
-pub mod audit_proof_of_scan;
-pub mod batch_operations;
-pub mod config;
-pub mod database;
+
 pub mod detectors;
-pub mod differential_fuzzing;
-pub mod emergency_stop;
-pub mod escrow;
-pub mod event_logging;
-pub mod gas_limits;
-pub mod invariants;
-pub mod kubernetes;
-pub mod multisig;
-pub mod notification_service;
 pub mod performance;
-pub mod rate_limiting;
-pub mod report;
 pub mod reporters;
-pub mod scanner_registry;
-pub mod scanners;
-pub mod secure_id_generation;
-pub mod security_analyzer;
-pub mod session;
-pub mod time_travel_debugger;
-pub mod wallet;
+
+// The api_versioning module compiles cleanly without the broken-modules feature.
+pub mod api_versioning;
+pub mod error_handler;
+
+// Comprehensive audit trail for security-critical operations (#326). Compiles
+// cleanly with no feature gate so its tests run under default `cargo test`.
+pub mod audit_trail;
+pub use audit_trail::{
+    ActorContext, AuditAction, AuditCategory, AuditConfig, AuditEvent, AuditEventBuilder,
+    AuditOutcome, AuditQuery, AuditSeverity, AuditTrail, ChainVerification,
+    SuspiciousActivityAlert, UserRole,
+};
+
+// Input sanitization & validation for contract-code uploads (issue #330).
+// Self-contained and compiles cleanly under default features.
+pub mod upload_sanitization;
+
+// Scan access control & ownership verification (issue #329).
+// Self-contained RBAC, ownership checks, scan sharing, and audit logging
+// to prevent Insecure Direct Object Reference (IDOR) vulnerabilities.
+pub mod scan_access_control;
+pub use scan_access_control::{
+    ScanAccessAction, ScanAccessControl, ScanAccessControlConfig, ScanAccessError,
+    ScanAccessLogEntry, ScanAccessMetadata, ScanAccessRole, ScanOwnershipGuard, ScanRecord,
+    ScanSeveritySummary, ScanStatus, ShareScanRequest, ShareScanResponse,
+};
 
 #[cfg(test)]
-mod multisig_tests;
+mod scan_access_control_tests;
 
-pub use scanners::{SecurityScanner, InvariantScanner};
-pub use vulnerabilities::VulnerabilityType;
-pub use invariants::InvariantRule;
-pub use analysis::AnalysisResult;
-pub use report::{SecurityReport, ReportFormat};
-pub use config::ScannerConfig;
-pub use kubernetes::{K8sScanManager, ScanPodConfig, ScanAutoScaler};
-pub use scanner_registry::{ScannerRegistry, ScannerVersion, VersionStatus};
-pub use audit_proof_of_scan::{AuditProofOfScan, SecurityCertificate, CertificateStatus, RiskScore};
-pub use session::stateless::{
-    ExternalSessionStore, InMemorySessionStore, SessionClaims, SessionError,
-    SessionStoreRecord, StatelessSessionManager,
-};
-pub use time_travel_debugger::{
-    TimeTravelDebugger, TimeTravelConfig, LedgerSnapshot, ContractState, 
-    ForkedState, TestResult, UpgradeSimulationResult, CacheStats
-};
-pub use differential_fuzzing::{
-    DifferentialFuzzer, DifferentialFuzzingConfig, DifferentialFuzzingReport,
-    SdkVersion, TestInput, ExecutionResult, DiscrepancyDetector, NonDeterministicBehavior
-};
-pub use batch_operations::{
-    BatchOperations, BatchOperationStatus, BatchEscrowReleaseRequest, 
-    BatchVerificationRequest, BatchOperationResult, BatchOperationSummary
-};
-pub use notification_service::{
-    NotificationService, NotificationServiceTrait, NotificationTemplate, TemplateManager,
-    DeliveryTracker, StorageBackend, InMemoryBackend, NotificationProvider, NotificationChannel, NotificationPriority,
-    DeliveryStatus, Recipient, NotificationMessage, NotificationResult
-};
-pub use rate_limiting::{
-    RateLimiter, RateLimitConfig, RateLimitContext, RateLimitResult, RateLimitTier,
-    RateLimitPolicy, RateLimitWindow, RateLimitMiddleware, EndpointRateLimit,
-    RateLimitStorage, RateLimitViolation, RateLimitStats
-};
-pub use wallet::{
-    WalletService, WalletStore, InMemoryWalletStore,
-    Wallet, WalletType, WalletStatus, WalletError,
-    CreateWalletRequest, ImportWalletRequest, RestoreWalletRequest,
-    WalletExport, WalletBalance, WalletSyncRecord,
-};
-pub use multisig::{
-    MultiSigService, MultiSigStore, InMemoryMultiSigStore,
-    MultiSigProposal, MultiSigSigner, ProposalStatus, SignerDecision,
-    MultiSigError, CreateProposalRequest, SubmitSignatureRequest,
-    AggregatedSignatures, SignatureEntry, SignerSpec,
-};
+// Secure database connection pooling, TLS, monitoring and replica routing
+// (issue #331). Self-contained and compiles cleanly under default features.
+pub mod db_pool;
+
+// === Core types (shared by clean modules) ===
 
 #[derive(Debug, Clone)]
 pub struct ScanResult {
@@ -135,48 +100,11 @@ impl Severity {
     }
 }
 
-// === Clean modules (no feature gate needed) ===
-// The api_versioning module compiles cleanly without the broken-modules feature.
-pub mod api_versioning;
-pub mod error_handler;
-
-// Comprehensive audit trail for security-critical operations (#326). Compiles
-// cleanly with no feature gate so its tests run under default `cargo test`.
-pub mod audit_trail;
-pub use audit_trail::{
-    ActorContext, AuditAction, AuditCategory, AuditConfig, AuditEvent, AuditEventBuilder,
-    AuditOutcome, AuditQuery, AuditSeverity, AuditTrail, ChainVerification,
-    SuspiciousActivityAlert, UserRole,
-};
-
-// Input sanitization & validation for contract-code uploads (issue #330).
-// Self-contained and compiles cleanly under default features.
-pub mod upload_sanitization;
-
-// Scan access control & ownership verification (issue #329).
-// Self-contained RBAC, ownership checks, scan sharing, and audit logging
-// to prevent Insecure Direct Object Reference (IDOR) vulnerabilities.
-pub mod scan_access_control;
-pub use scan_access_control::{
-    ScanAccessAction, ScanAccessControl, ScanAccessControlConfig, ScanAccessError,
-    ScanAccessLogEntry, ScanAccessMetadata, ScanAccessRole, ScanOwnershipGuard, ScanRecord,
-    ScanSeveritySummary, ScanStatus, ShareScanRequest, ShareScanResponse,
-};
-
-#[cfg(test)]
-mod scan_access_control_tests;
-
-// Secure database connection pooling, TLS, monitoring and replica routing
-// (issue #331). Self-contained and compiles cleanly under default features.
-pub mod db_pool;
-
 // === Broken modules gated behind feature flag ===
 // Each module has pre-existing compilation errors (borrow checker violations,
 // missing trait impls, type mismatches, unresolved imports) that are being
 // fixed incrementally. Enable "broken-modules" feature to include them.
 
-#[cfg(feature = "broken-modules")]
-pub mod address_filter;
 #[cfg(feature = "broken-modules")]
 pub mod analysis;
 #[cfg(feature = "broken-modules")]
