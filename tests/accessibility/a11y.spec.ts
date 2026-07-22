@@ -228,3 +228,94 @@ test("[a11y] All images have an alt attribute", async ({ page }: { page: Page })
     `Images missing alt attribute:\n${missingAlt.join("\n")}`
   ).toHaveLength(0);
 });
+
+// ── Form field accessibility ──────────────────────────────────────────────────
+test("[a11y] Form fields with errors have aria-describedby linking to error messages", async ({ page }: { page: Page }) => {
+  await page.goto("/scan");
+  await page.waitForLoadState("networkidle");
+
+  // Submit the empty form to trigger client-side validation
+  await page.getByRole("button", { name: /scan|submit/i }).click();
+
+  // Wait for errors to appear
+  await page.waitForSelector("[role='alert']", { timeout: 5000 });
+
+  // Find all form inputs with errors
+  const inputsWithErrors = await page.evaluate((): { name: string; hasDescribedBy: boolean }[] => {
+    const inputs = document.querySelectorAll('input, textarea, select');
+    return Array.from(inputs)
+      .filter((el) => el.getAttribute('aria-invalid') === 'true')
+      .map((el) => ({
+        name: el.getAttribute('name') || '',
+        hasDescribedBy: !!el.getAttribute('aria-describedby'),
+      }));
+  });
+
+  // All invalid inputs should have aria-describedby
+  for (const input of inputsWithErrors) {
+    expect(
+      input.hasDescribedBy,
+      `Input "${input.name}" with aria-invalid="true" is missing aria-describedby`
+    ).toBe(true);
+  }
+});
+
+test("[a11y] Form error summary has role=alert and aria-live=assertive", async ({ page }: { page: Page }) => {
+  await page.goto("/scan");
+  await page.waitForLoadState("networkidle");
+
+  // Submit the empty form to trigger client-side validation
+  await page.getByRole("button", { name: /scan|submit/i }).click();
+
+  // Check that the error summary has proper ARIA attributes
+  const errorSummary = page.locator('#form-error-summary');
+  await expect(errorSummary).toBeVisible({ timeout: 5000 });
+  await expect(errorSummary).toHaveAttribute('role', 'alert');
+  await expect(errorSummary).toHaveAttribute('aria-live', 'assertive');
+});
+
+test("[a11y] Form announcements live region exists for screen readers", async ({ page }: { page: Page }) => {
+  await page.goto("/scan");
+  await page.waitForLoadState("networkidle");
+
+  // The form-announcements region should exist
+  const announcements = page.locator('#form-announcements');
+  await expect(announcements).toBeAttached();
+  await expect(announcements).toHaveAttribute('aria-live', 'polite');
+  await expect(announcements).toHaveAttribute('role', 'status');
+});
+
+test("[a11y] Form progress announces step changes via screen reader", async ({ page }: { page: Page }) => {
+  await page.goto("/scan");
+  await page.waitForLoadState("networkidle");
+
+  // The form progress nav should have an aria-label
+  const progressNav = page.locator('nav[aria-label="Form progress"]');
+  const isVisible = await progressNav.count();
+
+  if (isVisible > 0) {
+    // Check that the sr-only live region exists inside
+    const liveRegion = progressNav.locator('.sr-only[aria-live="polite"]');
+    await expect(liveRegion).toBeAttached();
+
+    // Check that list items have aria-current for the active step
+    const currentStep = progressNav.locator('li div[aria-current="step"]');
+    const currentCount = await currentStep.count();
+    expect(currentCount).toBeGreaterThan(0);
+  }
+});
+
+test("[a11y] Input fields have aria-required attribute when required", async ({ page }: { page: Page }) => {
+  await page.goto("/scan");
+  await page.waitForLoadState("networkidle");
+
+  const requiredFields = await page.evaluate((): boolean => {
+    const requiredInputs = document.querySelectorAll('input[required], textarea[required], select[required]');
+    if (requiredInputs.length === 0) return true; // No required fields is valid
+    return Array.from(requiredInputs).every(
+      (el) => el.getAttribute('aria-required') === 'true'
+    );
+  });
+
+  expect(requiredFields).toBe(true);
+});

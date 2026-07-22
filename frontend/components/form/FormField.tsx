@@ -93,6 +93,17 @@ const FormFieldComponent = forwardRef<HTMLInputElement | HTMLTextAreaElement | H
       return `${baseClasses} ${stateClasses} ${className}`;
     };
 
+    const getAriaDescribedBy = () => {
+      const describedBy: string[] = [];
+      if (error) {
+        describedBy.push(`${name}-error`);
+      }
+      if (helperText && !error) {
+        describedBy.push(`${name}-helper`);
+      }
+      return describedBy.length > 0 ? describedBy.join(' ') : undefined;
+    };
+
     const renderInput = () => {
       const commonProps = {
         id: name,
@@ -104,6 +115,9 @@ const FormFieldComponent = forwardRef<HTMLInputElement | HTMLTextAreaElement | H
         onFocus: handleFocus,
         onBlur: handleBlur,
         className: getInputClasses(),
+        'aria-describedby': getAriaDescribedBy(),
+        'aria-invalid': isInvalid || !!error,
+        'aria-required': required,
         ...props
       };
 
@@ -187,13 +201,13 @@ const FormFieldComponent = forwardRef<HTMLInputElement | HTMLTextAreaElement | H
         {(error || helperText) && (
           <div className="space-y-1">
             {error && (
-              <p className="text-sm text-red-600 flex items-center">
-                <AlertCircle className="h-4 w-4 mr-1 flex-shrink-0" />
+              <p id={`${name}-error`} className="text-sm text-red-600 flex items-center" role="alert">
+                <AlertCircle className="h-4 w-4 mr-1 flex-shrink-0" aria-hidden="true" />
                 {error}
               </p>
             )}
             {helperText && !error && (
-              <p className="text-sm text-gray-500">{helperText}</p>
+              <p id={`${name}-helper`} className="text-sm text-gray-500">{helperText}</p>
             )}
           </div>
         )}

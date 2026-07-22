@@ -76,6 +76,40 @@ const ROUTES = [
 ];
 ```
 
+## Manual Testing Checklist
+
+In addition to automated axe-core scans, manually verify the following
+accessibility requirements:
+
+### Form Accessibility
+
+- [ ] **Form error summary** has `role="alert"` and `aria-live="assertive"`
+      attributes and announces error count/fields to screen readers on
+      validation failure.
+- [ ] **Form field errors** use `aria-describedby` to link each input to its
+      associated error message element (e.g., `id="{field}-error"`).
+- [ ] **Form field invalid state** uses `aria-invalid="true"` on inputs with
+      validation errors.
+- [ ] **Form announcements region** (`#form-announcements`) exists as a
+      visually hidden live region (`role="status"`, `aria-live="polite"`)
+      for success messages and dynamic feedback.
+- [ ] **Form progress steps** are wrapped in a `<nav>` with
+      `aria-label="Form progress"` and include a visually hidden live region
+      that announces step changes.
+- [ ] **Current step** in form progress has `aria-current="step"`.
+- [ ] **Required fields** have both the HTML `required` attribute and
+      `aria-required="true"`.
+- [ ] **Error icons** (e.g., `AlertCircle`, `AlertTriangle`) use
+      `aria-hidden="true"` so screen readers don't announce decorative
+      duplicate text.
+
+### General
+
+- [ ] All interactive elements are keyboard-reachable (Tab/Shift+Tab).
+- [ ] Focus order follows a logical sequence matching the visual layout.
+- [ ] Modal dialogs trap focus and restore it to the trigger on close.
+- [ ] Color is never the sole means of conveying information.
+
 ## Tuning Rules
 
 Disable a rule (with justification) using `disableRules`:
