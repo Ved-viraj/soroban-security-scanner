@@ -14,16 +14,8 @@ pub use address_filter::{
     StellarExpertFeed, StellarGuardFeed,
 };
 
-pub mod detectors;
-pub mod performance;
-pub mod reporters;
-
-// The api_versioning module compiles cleanly without the broken-modules feature.
-pub mod api_versioning;
 pub mod error_handler;
 
-// Comprehensive audit trail for security-critical operations (#326). Compiles
-// cleanly with no feature gate so its tests run under default `cargo test`.
 pub mod audit_trail;
 pub use audit_trail::{
     ActorContext, AuditAction, AuditCategory, AuditConfig, AuditEvent, AuditEventBuilder,
@@ -31,13 +23,6 @@ pub use audit_trail::{
     SuspiciousActivityAlert, UserRole,
 };
 
-// Input sanitization & validation for contract-code uploads (issue #330).
-// Self-contained and compiles cleanly under default features.
-pub mod upload_sanitization;
-
-// Scan access control & ownership verification (issue #329).
-// Self-contained RBAC, ownership checks, scan sharing, and audit logging
-// to prevent Insecure Direct Object Reference (IDOR) vulnerabilities.
 pub mod scan_access_control;
 pub use scan_access_control::{
     ScanAccessAction, ScanAccessControl, ScanAccessControlConfig, ScanAccessError,
@@ -47,10 +32,6 @@ pub use scan_access_control::{
 
 #[cfg(test)]
 mod scan_access_control_tests;
-
-// Secure database connection pooling, TLS, monitoring and replica routing
-// (issue #331). Self-contained and compiles cleanly under default features.
-pub mod db_pool;
 
 // === Core types (shared by clean modules) ===
 
