@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::defi_primitives::*;
     use super::attack_agent::*;
-    use super::search_engine::*;
-    use super::oracle_detection::*;
-    use super::mev_detection::*;
+    use super::defi_primitives::*;
     use super::flash_loan::*;
+    use super::mev_detection::*;
+    use super::oracle_detection::*;
     use super::profitability::*;
     use super::report::*;
+    use super::search_engine::*;
+    use super::*;
 
     // ── DeFi Primitives Tests ──────────────────────────────────────
 
@@ -77,11 +77,7 @@ mod tests {
     #[test]
     fn oracle_twap_calculation() {
         let mut oracle = Oracle::new("oracle1", "XLM/USD", 2.0);
-        oracle.historical_prices = vec![
-            (1000, 1.9),
-            (2000, 2.0),
-            (3000, 2.1),
-        ];
+        oracle.historical_prices = vec![(1000, 1.9), (2000, 2.0), (3000, 2.1)];
         let twap = oracle.twap();
         assert!((twap - 2.0).abs() < 0.001);
     }
@@ -172,9 +168,7 @@ mod tests {
             })
             .collect();
 
-        let result = ga.evolve(initial, |seq| {
-            seq.transactions.len() as f64
-        });
+        let result = ga.evolve(initial, |seq| seq.transactions.len() as f64);
 
         assert!(result.iterations > 0);
     }
@@ -273,14 +267,14 @@ mod tests {
     fn profitability_analyzer() {
         let analyzer = ProfitabilityAnalyzer::new();
         let result = analyzer.analyze(
-            10_000,  // required capital
-            500.0,   // gross profit
-            10.0,    // fees
-            100_000, // gas
-            3,       // tx count
-            5,       // timing window
+            10_000,    // required capital
+            500.0,     // gross profit
+            10.0,      // fees
+            100_000,   // gas
+            3,         // tx count
+            5,         // timing window
             1_000_000, // pool liquidity
-            0.1,     // risk of revert
+            0.1,       // risk of revert
         );
 
         assert!(result.net_profit > 0.0);
@@ -290,9 +284,9 @@ mod tests {
     #[test]
     fn exploit_difficulty_scoring() {
         let difficulty = ExploitDifficulty::calculate(
-            5,        // tx count
-            3,        // timing window (seconds)
-            100_000,  // required capital
+            5,         // tx count
+            3,         // timing window (seconds)
+            100_000,   // required capital
             1_000_000, // pool liquidity
         );
 
@@ -304,14 +298,15 @@ mod tests {
     #[test]
     fn profitability_scoring() {
         let analyzer = ProfitabilityAnalyzer::new();
-        let profitability = analyzer.analyze(
-            10_000, 1000.0, 50.0, 100_000, 2, 3, 100_000, 0.05,
-        );
+        let profitability = analyzer.analyze(10_000, 1000.0, 50.0, 100_000, 2, 3, 100_000, 0.05);
         let score = analyzer.score(&profitability);
 
         assert!(score.overall_score > 0.0);
         assert!(score.overall_score <= 1.0);
-        assert_ne!(score.recommendation, ProfitabilityRecommendation::NotExploitable);
+        assert_ne!(
+            score.recommendation,
+            ProfitabilityRecommendation::NotExploitable
+        );
     }
 
     // ── Report Tests ──────────────────────────────────────────────

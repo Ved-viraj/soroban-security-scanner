@@ -148,7 +148,11 @@ impl BeamSearch {
 
         let best = all_sequences
             .iter()
-            .max_by(|a, b| a.fitness.partial_cmp(&b.fitness).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.fitness
+                    .partial_cmp(&b.fitness)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .cloned();
 
         SearchResult {
@@ -248,7 +252,11 @@ impl GeneticAlgorithm {
 
         let best = all_sequences
             .iter()
-            .max_by(|a, b| a.fitness.partial_cmp(&b.fitness).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.fitness
+                    .partial_cmp(&b.fitness)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .cloned();
 
         SearchResult {
@@ -266,11 +274,7 @@ impl GeneticAlgorithm {
         parent_b: &TransactionSequence,
     ) -> TransactionSequence {
         let min_len = parent_a.transactions.len().min(parent_b.transactions.len());
-        let cut = if min_len > 0 {
-            min_len / 2
-        } else {
-            0
-        };
+        let cut = if min_len > 0 { min_len / 2 } else { 0 };
 
         let mut txs = Vec::new();
         txs.extend(parent_a.transactions[..cut].to_vec());
@@ -359,22 +363,21 @@ impl MonteCarloTreeSearch {
         }
 
         // Select best child based on average reward
-        let best_child = root
-            .children
-            .iter()
-            .max_by(|a, b| {
-                let avg_a = if a.visits > 0 {
-                    a.total_reward / a.visits as f64
-                } else {
-                    0.0
-                };
-                let avg_b = if b.visits > 0 {
-                    b.total_reward / b.visits as f64
-                } else {
-                    0.0
-                };
-                avg_a.partial_cmp(&avg_b).unwrap_or(std::cmp::Ordering::Equal)
-            });
+        let best_child = root.children.iter().max_by(|a, b| {
+            let avg_a = if a.visits > 0 {
+                a.total_reward / a.visits as f64
+            } else {
+                0.0
+            };
+            let avg_b = if b.visits > 0 {
+                b.total_reward / b.visits as f64
+            } else {
+                0.0
+            };
+            avg_a
+                .partial_cmp(&avg_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let best = best_child.map(|c| c.state.clone());
 
@@ -400,7 +403,11 @@ impl MonteCarloTreeSearch {
         if node.children.is_empty() {
             // Expansion
             if node.state.transactions.len() < self.config.max_depth {
-                let actions = vec![ActionType::SwapAForB, ActionType::SwapBForA, ActionType::LargeSwap];
+                let actions = vec![
+                    ActionType::SwapAForB,
+                    ActionType::SwapBForA,
+                    ActionType::LargeSwap,
+                ];
                 for action in actions {
                     let mut new_state = node.state.clone();
                     new_state.transactions.push(TransactionStep {
@@ -444,7 +451,9 @@ impl MonteCarloTreeSearch {
                     (b.total_reward / b.visits as f64)
                         + 2.0_f64.sqrt() * (total_visits.ln() / b.visits as f64).sqrt()
                 };
-                ucb_a.partial_cmp(&ucb_b).unwrap_or(std::cmp::Ordering::Equal)
+                ucb_a
+                    .partial_cmp(&ucb_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
             .unwrap();
 

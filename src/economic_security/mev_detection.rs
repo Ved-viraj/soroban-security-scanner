@@ -100,11 +100,7 @@ impl MevDetector {
             return None;
         }
 
-        let token_in = if is_buy {
-            &pool.token_a
-        } else {
-            &pool.token_b
-        };
+        let token_in = if is_buy { &pool.token_a } else { &pool.token_b };
 
         // Simulate front-run
         let front_run_out = pool.get_amount_out(front_run_amount, token_in).ok()? as f64;

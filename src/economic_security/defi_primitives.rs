@@ -32,11 +32,7 @@ pub struct StateChange {
 pub trait DeFiPrimitive {
     fn primitive_type(&self) -> DeFiPrimitiveType;
     fn id(&self) -> &str;
-    fn simulate_swap(
-        &self,
-        token_in: &str,
-        amount_in: u128,
-    ) -> Result<u128, String>;
+    fn simulate_swap(&self, token_in: &str, amount_in: u128) -> Result<u128, String>;
 }
 
 // ── Constant Product AMM (x*y=k) ─────────────────────────────────
@@ -52,13 +48,7 @@ pub struct ConstantProductAmm {
 }
 
 impl ConstantProductAmm {
-    pub fn new(
-        id: &str,
-        token_a: &str,
-        token_b: &str,
-        reserve_a: u128,
-        reserve_b: u128,
-    ) -> Self {
+    pub fn new(id: &str, token_a: &str, token_b: &str, reserve_a: u128, reserve_b: u128) -> Self {
         Self {
             id: id.to_string(),
             token_a: token_a.to_string(),
@@ -105,8 +95,12 @@ impl ConstantProductAmm {
             .and_then(|v| v.checked_div(10000))
             .ok_or("Fee calculation overflow")?;
 
-        let numerator = amount_in_with_fee.checked_mul(reserve_out).ok_or("Overflow")?;
-        let denominator = reserve_in.checked_add(amount_in_with_fee).ok_or("Overflow")?;
+        let numerator = amount_in_with_fee
+            .checked_mul(reserve_out)
+            .ok_or("Overflow")?;
+        let denominator = reserve_in
+            .checked_add(amount_in_with_fee)
+            .ok_or("Overflow")?;
 
         if denominator == 0 {
             return Err("Division by zero".to_string());
@@ -127,15 +121,9 @@ impl ConstantProductAmm {
 
         // Simulated state
         let (new_reserve_a, new_reserve_b) = if token_in == self.token_a {
-            (
-                self.reserve_a + amount_in,
-                self.reserve_b - amount_out,
-            )
+            (self.reserve_a + amount_in, self.reserve_b - amount_out)
         } else {
-            (
-                self.reserve_a - amount_out,
-                self.reserve_b + amount_in,
-            )
+            (self.reserve_a - amount_out, self.reserve_b + amount_in)
         };
 
         let spot_after = if new_reserve_a == 0 {
@@ -186,12 +174,7 @@ pub struct LendingPool {
 }
 
 impl LendingPool {
-    pub fn new(
-        id: &str,
-        collateral_asset: &str,
-        borrow_asset: &str,
-        liquidity: u128,
-    ) -> Self {
+    pub fn new(id: &str, collateral_asset: &str, borrow_asset: &str, liquidity: u128) -> Self {
         Self {
             id: id.to_string(),
             collateral_asset: collateral_asset.to_string(),
@@ -215,8 +198,7 @@ impl LendingPool {
             return 0;
         }
         let collateral_value = (collateral_amount as f64) * collateral_price;
-        let max_borrow_value =
-            collateral_value * 10000.0 / self.collateralization_ratio_bps as f64;
+        let max_borrow_value = collateral_value * 10000.0 / self.collateralization_ratio_bps as f64;
         (max_borrow_value / borrow_price) as u128
     }
 
@@ -297,8 +279,7 @@ impl Oracle {
         threshold_bps: u16,
         pool: &ConstantProductAmm,
     ) -> u128 {
-        let target_price = self.current_price
-            * (1.0 + threshold_bps as f64 / 10000.0);
+        let target_price = self.current_price * (1.0 + threshold_bps as f64 / 10000.0);
 
         // Binary search for the trade size
         let mut low: u128 = 0;

@@ -65,9 +65,9 @@ impl ExploitDifficulty {
 /// Scoring result for profit analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfitabilityScore {
-    pub profit_score: f64,       // 0.0 - 1.0, higher = more profitable
-    pub risk_score: f64,          // 0.0 - 1.0, higher = more risky
-    pub overall_score: f64,       // Composite score
+    pub profit_score: f64,  // 0.0 - 1.0, higher = more profitable
+    pub risk_score: f64,    // 0.0 - 1.0, higher = more risky
+    pub overall_score: f64, // Composite score
     pub recommendation: ProfitabilityRecommendation,
 }
 
@@ -142,8 +142,7 @@ impl ProfitabilityAnalyzer {
     /// Score the profitability on a 0-1 scale.
     pub fn score(&self, profitability: &ExploitProfitability) -> ProfitabilityScore {
         let profit_score = if profitability.gross_profit > 0.0 {
-            (profitability.net_profit / (profitability.required_capital as f64).max(1.0))
-                .min(1.0)
+            (profitability.net_profit / (profitability.required_capital as f64).max(1.0)).min(1.0)
         } else {
             0.0
         };

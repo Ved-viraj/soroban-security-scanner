@@ -157,8 +157,7 @@ impl EconomicExploitReport {
         ));
         out.push_str(&format!(
             "Profitable attacks: {}, Est. loss: {:.2} XLM\n",
-            self.summary.total_profitable_attacks,
-            self.summary.total_estimated_loss_xlm,
+            self.summary.total_profitable_attacks, self.summary.total_estimated_loss_xlm,
         ));
 
         for finding in &self.findings {
@@ -167,10 +166,7 @@ impl EconomicExploitReport {
                 finding.severity, finding.title, finding.description
             ));
             if let Some(pb) = &finding.profit_breakdown {
-                out.push_str(&format!(
-                    " (Net profit: {:.2} XLM)",
-                    pb.net_profit
-                ));
+                out.push_str(&format!(" (Net profit: {:.2} XLM)", pb.net_profit));
             }
         }
         out

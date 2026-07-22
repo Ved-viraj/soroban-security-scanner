@@ -222,22 +222,18 @@ pub use wallet::{
 
 #[cfg(feature = "broken-modules")]
 pub use economic_security::{
-    attack_agent::{AttackAgent, AttackCapability, AgentObjective},
+    attack_agent::{AgentObjective, AttackAgent, AttackCapability},
     defi_primitives::{
-        ConstantProductAmm, DeFiPrimitive, DeFiPrimitiveType, LendingPool, LiquidityPool,
-        Oracle, OracleType, StateChange, StakingRewards, TwapOracle,
+        ConstantProductAmm, DeFiPrimitive, DeFiPrimitiveType, LendingPool, LiquidityPool, Oracle,
+        OracleType, StakingRewards, StateChange, TwapOracle,
     },
     flash_loan::{FlashLoanAttack, FlashLoanScenario, FlashLoanSimulator},
     mev_detection::{MevDetector, MevOpportunity, MevType, SandwichAttack, TransactionOrder},
-    oracle_detection::{
-        OracleManipulationDetector, OracleManipulationScenario, PriceDeviation,
-    },
+    oracle_detection::{OracleManipulationDetector, OracleManipulationScenario, PriceDeviation},
     profitability::{
         ExploitDifficulty, ExploitProfitability, ProfitabilityAnalyzer, ProfitabilityScore,
     },
-    report::{
-        AttackSequence, EconomicExploitReport, EconomicExploitSummary, EconomicFinding,
-    },
+    report::{AttackSequence, EconomicExploitReport, EconomicExploitSummary, EconomicFinding},
     search_engine::{
         BeamSearch, GeneticAlgorithm, MonteCarloTreeSearch, SearchAlgorithm, SearchConfig,
         SearchResult, TransactionSequence,

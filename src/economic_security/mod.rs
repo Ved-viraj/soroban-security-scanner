@@ -20,20 +20,20 @@ pub mod search_engine;
 #[cfg(test)]
 mod tests;
 
-pub use attack_agent::{AttackAgent, AttackCapability, AgentObjective};
+pub use attack_agent::{AgentObjective, AttackAgent, AttackCapability};
 pub use defi_primitives::{
     ConstantProductAmm, DeFiPrimitive, DeFiPrimitiveType, LendingPool, LiquidityPool, Oracle,
-    OracleType, StateChange, StakingRewards, TwapOracle,
+    OracleType, StakingRewards, StateChange, TwapOracle,
 };
 pub use flash_loan::{FlashLoanAttack, FlashLoanScenario, FlashLoanSimulator};
 pub use mev_detection::{MevDetector, MevOpportunity, MevType, SandwichAttack, TransactionOrder};
-pub use oracle_detection::{OracleManipulationDetector, OracleManipulationScenario, PriceDeviation};
+pub use oracle_detection::{
+    OracleManipulationDetector, OracleManipulationScenario, PriceDeviation,
+};
 pub use profitability::{
     ExploitDifficulty, ExploitProfitability, ProfitabilityAnalyzer, ProfitabilityScore,
 };
-pub use report::{
-    AttackSequence, EconomicExploitReport, EconomicExploitSummary, EconomicFinding,
-};
+pub use report::{AttackSequence, EconomicExploitReport, EconomicExploitSummary, EconomicFinding};
 pub use search_engine::{
     BeamSearch, GeneticAlgorithm, MonteCarloTreeSearch, SearchAlgorithm, SearchConfig,
     SearchResult, TransactionSequence,

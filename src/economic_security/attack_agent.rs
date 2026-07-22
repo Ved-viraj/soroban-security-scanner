@@ -34,7 +34,9 @@ impl AttackCapability {
             Self::Swap => "Submit swap/trade transactions to AMM pools",
             Self::OracleManipulation => "Manipulate oracle prices through trades",
             Self::TransactionReordering => "Reorder transactions within a ledger close (MEV)",
-            Self::TemporaryContractDeployment => "Deploy temporary contracts for complex attack logic",
+            Self::TemporaryContractDeployment => {
+                "Deploy temporary contracts for complex attack logic"
+            }
             Self::LiquidityProvision => "Provide/remove liquidity to manipulate pool ratios",
             Self::Borrow => "Borrow assets from lending pools",
             Self::Repay => "Repay borrowed assets",
@@ -72,7 +74,7 @@ pub struct AgentObjective {
 impl Default for AgentObjective {
     fn default() -> Self {
         Self {
-            target_profit: 0,       // Find any profitable attack
+            target_profit: 0, // Find any profitable attack
             max_gas_budget: 10_000_000,
             max_transactions: 10,
             time_window_seconds: 5, // Stellar ledger close window
@@ -95,17 +97,14 @@ pub struct AttackAgent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentAction {
     pub capability: AttackCapability,
-    pub target: String,        // Pool/Oracle/Contract ID
+    pub target: String, // Pool/Oracle/Contract ID
     pub amount: u128,
     pub token: String,
     pub timestamp: u64,
 }
 
 impl AttackAgent {
-    pub fn new(
-        capabilities: Vec<AttackCapability>,
-        initial_balance: u128,
-    ) -> Self {
+    pub fn new(capabilities: Vec<AttackCapability>, initial_balance: u128) -> Self {
         Self {
             capabilities,
             initial_balance,

@@ -132,7 +132,10 @@ impl FlashLoanSimulator {
         // Step 4: Repay flash loan
         let fee = borrowed_amount * self.flash_loan_fee_bps as u128 / 10000;
         let total_repay = borrowed_amount + fee;
-        exploit_path.push(format!("Repay {} + {} fee to lending pool", borrowed_amount, fee));
+        exploit_path.push(format!(
+            "Repay {} + {} fee to lending pool",
+            borrowed_amount, fee
+        ));
         operations.push(FlashLoanOperation {
             operation_type: FlashLoanOpType::Repay,
             target: lending.id.clone(),
@@ -194,7 +197,8 @@ impl FlashLoanSimulator {
         }
 
         attacks.sort_by(|a, b| {
-            b.scenario.net_profit
+            b.scenario
+                .net_profit
                 .partial_cmp(&a.scenario.net_profit)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
@@ -208,4 +212,3 @@ impl Default for FlashLoanSimulator {
         Self::new()
     }
 }
-

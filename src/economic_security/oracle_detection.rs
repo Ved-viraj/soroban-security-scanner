@@ -97,11 +97,7 @@ impl OracleManipulationDetector {
     }
 
     /// Calculate the swap amount needed to move price by threshold_bps.
-    fn required_swap_for_deviation(
-        &self,
-        pool: &ConstantProductAmm,
-        target_bps: u16,
-    ) -> u128 {
+    fn required_swap_for_deviation(&self, pool: &ConstantProductAmm, target_bps: u16) -> u128 {
         // Binary search for swap amount
         let mut low: u128 = 0;
         let mut high: u128 = pool.reserve_a.max(pool.reserve_b);
