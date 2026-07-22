@@ -8,6 +8,17 @@ use crate::supply_chain::inventory::Dependency;
 use crate::supply_chain::vuln::VulnSeverity;
 use serde::{Deserialize, Serialize};
 
+/// The scope at which license policy is evaluated (Issue #437).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LicensePolicyScope {
+    /// Only evaluate direct dependencies (current behavior).
+    DirectOnly,
+    /// Evaluate direct AND transitive dependencies (new default).
+    DirectAndTransitive,
+    /// Evaluate all but allow specific GPL packages via an ignore list.
+    TransitiveIgnoreList,
+}
+
 /// The dependency security policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DependencyPolicy {
@@ -17,6 +28,10 @@ pub struct DependencyPolicy {
     pub high_risk_packages: Vec<String>,
     /// Severity at/above which a vulnerability blocks release.
     pub block_at_severity: VulnSeverity,
+    /// License policy scope (Issue #437).
+    pub license_scope: LicensePolicyScope,
+    /// Packages to ignore when checking transitive licenses (for TransitiveIgnoreList).
+    pub transitive_ignore_list: Vec<String>,
 }
 
 impl Default for DependencyPolicy {
@@ -30,6 +45,8 @@ impl Default for DependencyPolicy {
             ],
             high_risk_packages: Vec::new(),
             block_at_severity: VulnSeverity::High,
+            license_scope: LicensePolicyScope::DirectAndTransitive,
+            transitive_ignore_list: Vec::new(),
         }
     }
 }
@@ -79,6 +96,40 @@ impl DependencyPolicy {
             }
             Some(_) => None,
         }
+    }
+
+    /// Check license for a dependency, respecting the policy scope (Issue #437).
+    ///
+    /// - `DirectOnly`: Skip transitive dependencies
+    /// - `DirectAndTransitive`: Check all dependencies
+    /// - `TransitiveIgnoreList`: Check all but skip packages in the ignore list
+    pub fn check_license_with_scope(&self, dep: &Dependency) -> Option<PolicyViolation> {
+        match self.license_scope {
+            LicensePolicyScope::DirectOnly => {
+                if !dep.direct {
+                    return None; // Skip transitive
+                }
+                self.check_license(dep)
+            }
+            LicensePolicyScope::DirectAndTransitive => {
+                self.check_license(dep)
+            }
+            LicensePolicyScope::TransitiveIgnoreList => {
+                if !dep.direct && self.transitive_ignore_list.contains(&dep.name) {
+                    return None; // Skip ignored transitive package
+                }
+                self.check_license(dep)
+            }
+        }
+    }
+
+    /// Check all dependencies in an inventory for license violations (Issue #437).
+    pub fn check_inventory(&self, inventory: &crate::supply_chain::inventory::DependencyInventory) -> Vec<PolicyViolation> {
+        inventory
+            .dependencies
+            .iter()
+            .filter_map(|d| self.check_license_with_scope(d))
+            .collect()
     }
 }
 
