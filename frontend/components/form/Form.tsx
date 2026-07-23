@@ -1,6 +1,6 @@
 'use client';
 
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useEffect, useRef, useState } from 'react';
 import { useFormValidation } from '@/hooks/useFormValidation';
 import { FormConfig } from '@/utils/validation';
 import { UseFormValidationOptions } from '@/hooks/useFormValidation';
@@ -29,6 +29,8 @@ export interface FormProps<T extends Record<string, any>> {
   options?: UseFormValidationOptions;
   className?: string;
   noValidate?: boolean;
+  /** Optional callback when form submission succeeds */
+  onSuccessMessage?: string;
 }
 
 export function Form<T extends Record<string, any>>({
@@ -38,15 +40,54 @@ export function Form<T extends Record<string, any>>({
   options,
   className = '',
   noValidate = false,
+  onSuccessMessage,
 }: FormProps<T>) {
   const formValidation = useFormValidation<T>(config, options);
-  const { handleSubmit } = formValidation;
+  const { handleSubmit, errors } = formValidation;
+  const [announcement, setAnnouncement] = useState('');
+  const prevErrorCountRef = useRef(0);
 
-  const onFormSubmit = handleSubmit(onSubmit);
+  // Announce error summary changes to screen readers
+  const errorsKey = JSON.stringify(errors);
+  useEffect(() => {
+    const errorEntries = Object.entries(errors).filter(([, msg]) => !!msg);
+    const currentErrorCount = errorEntries.length;
+
+    if (currentErrorCount > prevErrorCountRef.current) {
+      const fieldNames = errorEntries.map(([field]) => field.replace(/([A-Z])/g, ' $1').trim());
+      setAnnouncement(
+        `Form has ${currentErrorCount} error${currentErrorCount > 1 ? 's' : ''}: ${fieldNames.join(', ')}`
+      );
+    }
+
+    prevErrorCountRef.current = currentErrorCount;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorsKey]);
+
+  const wrappedOnSubmit = async (data: T) => {
+    await onSubmit(data);
+    if (onSuccessMessage) {
+      setAnnouncement(onSuccessMessage);
+    }
+  };
+
+  const onFormSubmit = handleSubmit(wrappedOnSubmit);
 
   return (
-    <form onSubmit={onFormSubmit} noValidate={noValidate} className={className}>
-      {children(formValidation)}
-    </form>
+    <>
+      {/* Visually hidden live region for screen reader announcements */}
+      <div
+        id="form-announcements"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {announcement}
+      </div>
+      <form onSubmit={onFormSubmit} noValidate={noValidate} className={className}>
+        {children(formValidation)}
+      </form>
+    </>
   );
 }

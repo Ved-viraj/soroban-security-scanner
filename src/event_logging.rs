@@ -43,9 +43,13 @@ impl Default for EventLoggingConfig {
                 CriticalOperation::FundTransfer,
                 CriticalOperation::VulnerabilityVerification,
                 CriticalOperation::EscrowOperation,
+                CriticalOperation::EscrowRefunded,
+                CriticalOperation::EscrowCancelled,
                 CriticalOperation::RewardDistribution,
                 CriticalOperation::AdminApproval,
                 CriticalOperation::OwnershipChange,
+                CriticalOperation::ScanResultAccess,
+                CriticalOperation::ScanResultShare,
             ],
         }
     }
@@ -69,6 +73,8 @@ pub enum CriticalOperation {
     RewardDistribution,
     AdminApproval,
     OwnershipChange,
+    EscrowRefunded,
+    EscrowCancelled,
     BountyCreation,
     BountyApproval,
     BountyClaim,
@@ -76,6 +82,10 @@ pub enum CriticalOperation {
     ContractUpgrade,
     EmergencyStop,
     ConfigurationChange,
+    /// Scan result access attempt (for IDOR detection and audit trail - issue #329)
+    ScanResultAccess,
+    /// Scan result sharing operation
+    ScanResultShare,
 }
 
 /// Event severity levels

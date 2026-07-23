@@ -9,6 +9,7 @@ pub mod discrepancy_detector;
 pub mod execution_tracer;
 pub mod input_generator;
 pub mod ledger_snapshot_integration;
+pub mod taint_tracker;
 pub mod test_runner;
 
 #[cfg(test)]
@@ -25,6 +26,11 @@ pub use discrepancy_detector::{DiscrepancyDetector, DiscrepancyReport, Discrepan
 pub use execution_tracer::{ExecutionTrace, ExecutionTracer, TraceEvent};
 pub use input_generator::{CompositeScenario, EdgeCaseType, InputGenerator};
 pub use ledger_snapshot_integration::{LedgerSnapshotIntegration, NetworkState};
+pub use taint_tracker::{
+    ComposabilityVulnType, ComposabilityVulnerability, SinkType, SourceOrigin, TaintAnalysisConfig,
+    TaintAnalysisReport, TaintCallEdge, TaintCallGraph, TaintCallNode, TaintFlowPath, TaintSink,
+    TaintSummary, TaintTag, TaintTracker,
+};
 pub use test_runner::{DifferentialTestRunner, TestConfig, TestResult};
 
 /// SDK version information for differential testing

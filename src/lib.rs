@@ -3,7 +3,35 @@
 //! This crate provides comprehensive security analysis tools for Stellar Soroban contracts,
 //! including vulnerability detection, invariant checking, and best practices enforcement.
 
-// === Core types that compile cleanly ===
+// === Clean modules (always compiled, no feature gate needed) ===
+
+pub mod address_filter;
+pub use address_filter::{
+    AddressCategory, AddressEntry, AddressFilter, AddressFilterConfig, AddressFilterStats,
+    AddressFormat, FilterAction, FilterResult, ListType, StellarExpertFeed, StellarGuardFeed,
+    ThreatIntelFeed, ThreatIntelFeedConfig, ThreatIntelFeedStatus, ThreatIntelRefreshSummary,
+};
+
+pub mod error_handler;
+
+pub mod audit_trail;
+pub use audit_trail::{
+    ActorContext, AuditAction, AuditCategory, AuditConfig, AuditEvent, AuditEventBuilder,
+    AuditOutcome, AuditQuery, AuditSeverity, AuditTrail, ChainVerification,
+    SuspiciousActivityAlert, UserRole,
+};
+
+pub mod scan_access_control;
+pub use scan_access_control::{
+    ScanAccessAction, ScanAccessControl, ScanAccessControlConfig, ScanAccessError,
+    ScanAccessLogEntry, ScanAccessMetadata, ScanAccessRole, ScanOwnershipGuard, ScanRecord,
+    ScanSeveritySummary, ScanStatus, ShareScanRequest, ShareScanResponse,
+};
+
+#[cfg(test)]
+mod scan_access_control_tests;
+
+// === Core types (shared by clean modules) ===
 
 #[derive(Debug, Clone)]
 pub struct ScanResult {
@@ -32,7 +60,7 @@ impl ScanResult {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Severity {
     Critical,
     High,
@@ -57,8 +85,6 @@ impl Severity {
 // fixed incrementally. Enable "broken-modules" feature to include them.
 
 #[cfg(feature = "broken-modules")]
-pub mod address_filter;
-#[cfg(feature = "broken-modules")]
 pub mod analysis;
 #[cfg(feature = "broken-modules")]
 pub mod audit_proof_of_scan;
@@ -79,6 +105,8 @@ pub mod event_logging;
 #[cfg(feature = "broken-modules")]
 pub mod gas_limits;
 #[cfg(feature = "broken-modules")]
+pub mod incremental_scan;
+#[cfg(feature = "broken-modules")]
 pub mod invariants;
 #[cfg(feature = "broken-modules")]
 pub mod kubernetes;
@@ -86,6 +114,8 @@ pub mod kubernetes;
 pub mod multisig;
 #[cfg(feature = "broken-modules")]
 pub mod notification_service;
+#[cfg(feature = "broken-modules")]
+pub mod protocol_analysis;
 #[cfg(feature = "broken-modules")]
 pub mod rate_limiting;
 #[cfg(feature = "broken-modules")]
@@ -101,11 +131,19 @@ pub mod security_analyzer;
 #[cfg(feature = "broken-modules")]
 pub mod session;
 #[cfg(feature = "broken-modules")]
+pub mod storage_safety;
+#[cfg(feature = "broken-modules")]
 pub mod time_travel_debugger;
 #[cfg(feature = "broken-modules")]
 pub mod db_pool;
 #[cfg(feature = "broken-modules")]
 pub mod wallet;
+
+// Economic exploit simulation framework (#444).
+// Models DeFi protocols and searches for profitable attack sequences:
+// flash loans, oracle manipulation, and MEV detection.
+#[cfg(feature = "broken-modules")]
+pub mod economic_security;
 
 #[cfg(feature = "broken-modules")]
 #[cfg(test)]
@@ -146,6 +184,11 @@ pub use notification_service::{
     NotificationServiceTrait, NotificationTemplate, Recipient, StorageBackend, TemplateManager,
 };
 #[cfg(feature = "broken-modules")]
+pub use protocol_analysis::{
+    dashboard::ProtocolHealth, manifest::ProtocolManifest, InvariantKind, ProtocolInvariant,
+    ProtocolVerificationReport, VerificationStatus,
+};
+#[cfg(feature = "broken-modules")]
 pub use rate_limiting::{
     EndpointRateLimit, RateLimitConfig, RateLimitContext, RateLimitMiddleware, RateLimitPolicy,
     RateLimitResult, RateLimitStats, RateLimitStorage, RateLimitTier, RateLimitViolation,
@@ -174,4 +217,24 @@ pub use wallet::{
     CreateWalletRequest, ImportWalletRequest, InMemoryWalletStore, RestoreWalletRequest, Wallet,
     WalletBalance, WalletError, WalletExport, WalletService, WalletStatus, WalletStore,
     WalletSyncRecord, WalletType,
+};
+
+#[cfg(feature = "broken-modules")]
+pub use economic_security::{
+    attack_agent::{AgentObjective, AttackAgent, AttackCapability},
+    defi_primitives::{
+        ConstantProductAmm, DeFiPrimitive, DeFiPrimitiveType, LendingPool, LiquidityPool, Oracle,
+        OracleType, StakingRewards, StateChange, TwapOracle,
+    },
+    flash_loan::{FlashLoanAttack, FlashLoanScenario, FlashLoanSimulator},
+    mev_detection::{MevDetector, MevOpportunity, MevType, SandwichAttack, TransactionOrder},
+    oracle_detection::{OracleManipulationDetector, OracleManipulationScenario, PriceDeviation},
+    profitability::{
+        ExploitDifficulty, ExploitProfitability, ProfitabilityAnalyzer, ProfitabilityScore,
+    },
+    report::{AttackSequence, EconomicExploitReport, EconomicExploitSummary, EconomicFinding},
+    search_engine::{
+        BeamSearch, GeneticAlgorithm, MonteCarloTreeSearch, SearchAlgorithm, SearchConfig,
+        SearchResult, TransactionSequence,
+    },
 };
