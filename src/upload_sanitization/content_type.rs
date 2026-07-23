@@ -1,82 +1,72 @@
-//! Content-type allowlisting and consistency checks.
+//! Content type checks for uploaded files.
 //!
-//! Only a small set of declared content types is accepted, and the declared
-//! type must be *consistent* with the kind sniffed from the bytes — a request
-//! that claims `application/wasm` but whose bytes are an ELF binary is
-//! rejected.
+//! Verifies that uploaded files have the correct MIME type
+//! and file extension for WASM binaries.
 
-use crate::upload_sanitization::magic::FileKind;
-use serde::{Deserialize, Serialize};
-
-/// A declared, allowlisted content type for contract-code uploads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AllowedContentType {
-    /// `application/wasm`.
-    Wasm,
-    /// `text/rust` / `text/x-rust` — Rust source.
-    RustSource,
-    /// `text/x-toml` / `application/toml` — Cargo manifest.
-    Toml,
-    /// `text/plain` — generic source text.
-    PlainText,
-}
-
-impl AllowedContentType {
-    /// Parses a declared MIME type (case-insensitive, parameters ignored).
-    pub fn parse(mime: &str) -> Option<Self> {
-        let base = mime
-            .split(';')
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_ascii_lowercase();
-        match base.as_str() {
-            "application/wasm" => Some(Self::Wasm),
-            "text/rust" | "text/x-rust" | "application/rust" => Some(Self::RustSource),
-            "text/x-toml" | "application/toml" | "text/toml" => Some(Self::Toml),
-            "text/plain" => Some(Self::PlainText),
-            _ => None,
-        }
-    }
-
-    /// The file kind the declared type implies.
-    pub fn expected_kind(&self) -> FileKind {
-        match self {
-            AllowedContentType::Wasm => FileKind::Wasm,
-            AllowedContentType::RustSource
-            | AllowedContentType::Toml
-            | AllowedContentType::PlainText => FileKind::SourceText,
-        }
-    }
-}
-
-/// Result of validating a declared content type against sniffed bytes.
+/// Result of content type verification
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ContentTypeCheck {
-    /// Declared type is allowlisted and matches the detected kind.
-    Ok(AllowedContentType),
-    /// Declared type is not on the allowlist.
-    NotAllowed,
-    /// Declared type is allowlisted but contradicts the detected bytes.
-    Mismatch {
-        /// What the bytes actually look like.
-        detected: FileKind,
-        /// What the declaration implied.
-        expected: FileKind,
-    },
+pub enum ContentTypeResult {
+    /// Content type is valid for a WASM binary
+    Valid,
+    /// Invalid file extension
+    InvalidExtension { provided: String, expected: String },
+    /// Invalid MIME type
+    InvalidMimeType { provided: String, expected: String },
+    /// MIME type does not match file content
+    MimeContentMismatch { mime: String, detail: String },
 }
 
-/// Validates a declared MIME type against the detected file kind.
-pub fn check(declared_mime: &str, detected: FileKind) -> ContentTypeCheck {
-    let Some(allowed) = AllowedContentType::parse(declared_mime) else {
-        return ContentTypeCheck::NotAllowed;
-    };
-    let expected = allowed.expected_kind();
-    if expected == detected {
-        ContentTypeCheck::Ok(allowed)
-    } else {
-        ContentTypeCheck::Mismatch { detected, expected }
+/// Valid WASM file extensions
+const VALID_EXTENSIONS: &[&str] = &["wasm", "wat"];
+
+/// Valid MIME types for WASM binaries
+const VALID_MIME_TYPES: &[&str] = &["application/wasm", "application/octet-stream"];
+
+/// Validate that the file extension is valid for a WASM binary
+pub fn validate_extension(filename: &str) -> ContentTypeResult {
+    let path = std::path::Path::new(filename);
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) if VALID_EXTENSIONS.contains(&ext) => ContentTypeResult::Valid,
+        Some(ext) => ContentTypeResult::InvalidExtension {
+            provided: ext.to_string(),
+            expected: VALID_EXTENSIONS.join(", "),
+        },
+        None => ContentTypeResult::InvalidExtension {
+            provided: "(no extension)".to_string(),
+            expected: VALID_EXTENSIONS.join(", "),
+        },
     }
+}
+
+/// Validate that the MIME type is valid for a WASM binary
+pub fn validate_mime_type(mime_type: &str) -> ContentTypeResult {
+    if VALID_MIME_TYPES.contains(&mime_type) {
+        ContentTypeResult::Valid
+    } else {
+        ContentTypeResult::InvalidMimeType {
+            provided: mime_type.to_string(),
+            expected: "application/wasm".to_string(),
+        }
+    }
+}
+
+/// Validate that the file content matches the expected type
+pub fn validate_content_type(filename: &str, bytes: &[u8]) -> ContentTypeResult {
+    // Check extension first
+    let ext_result = validate_extension(filename);
+    if !matches!(ext_result, ContentTypeResult::Valid) {
+        return ext_result;
+    }
+
+    // Verify WASM magic bytes
+    if bytes.len() < 4 || bytes[0..4] != [0x00, 0x61, 0x73, 0x6D] {
+        return ContentTypeResult::MimeContentMismatch {
+            mime: "application/wasm".to_string(),
+            detail: "File content does not contain valid WASM magic bytes".to_string(),
+        };
+    }
+
+    ContentTypeResult::Valid
 }
 
 #[cfg(test)]
@@ -84,48 +74,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn allowlist_parsing() {
+    fn test_valid_wasm_extension() {
         assert_eq!(
-            AllowedContentType::parse("application/wasm"),
-            Some(AllowedContentType::Wasm)
-        );
-        assert_eq!(
-            AllowedContentType::parse("text/x-rust; charset=utf-8"),
-            Some(AllowedContentType::RustSource)
-        );
-        assert_eq!(AllowedContentType::parse("application/octet-stream"), None);
-        assert_eq!(AllowedContentType::parse("image/png"), None);
-    }
-
-    #[test]
-    fn consistent_declaration_passes() {
-        assert_eq!(
-            check("application/wasm", FileKind::Wasm),
-            ContentTypeCheck::Ok(AllowedContentType::Wasm)
-        );
-        assert_eq!(
-            check("text/x-rust", FileKind::SourceText),
-            ContentTypeCheck::Ok(AllowedContentType::RustSource)
+            validate_extension("contract.wasm"),
+            ContentTypeResult::Valid
         );
     }
 
     #[test]
-    fn disallowed_type_is_rejected() {
+    fn test_invalid_extension() {
+        let result = validate_extension("contract.exe");
+        assert!(matches!(result, ContentTypeResult::InvalidExtension { .. }));
+    }
+
+    #[test]
+    fn test_valid_mime_type() {
         assert_eq!(
-            check("application/x-msdownload", FileKind::Wasm),
-            ContentTypeCheck::NotAllowed
+            validate_mime_type("application/wasm"),
+            ContentTypeResult::Valid
         );
     }
 
     #[test]
-    fn mismatch_is_detected() {
-        // Claims WASM but bytes are an ELF executable.
-        assert_eq!(
-            check("application/wasm", FileKind::Elf),
-            ContentTypeCheck::Mismatch {
-                detected: FileKind::Elf,
-                expected: FileKind::Wasm,
-            }
+    fn test_invalid_mime_type() {
+        let result = validate_mime_type("text/html");
+        assert!(matches!(result, ContentTypeResult::InvalidMimeType { .. }));
+    }
+
+    #[test]
+    fn test_mime_content_mismatch() {
+        let result = validate_content_type("contract.wasm", &[0x00, 0x00, 0x00, 0x00]);
+        assert!(matches!(
+            result,
+            ContentTypeResult::MimeContentMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn test_valid_content_type() {
+        let result = validate_content_type(
+            "contract.wasm",
+            &[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00],
         );
+        assert_eq!(result, ContentTypeResult::Valid);
     }
 }

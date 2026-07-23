@@ -137,6 +137,8 @@ pub mod storage_safety;
 #[cfg(feature = "broken-modules")]
 pub mod time_travel_debugger;
 #[cfg(feature = "broken-modules")]
+pub mod upload_sanitization;
+#[cfg(feature = "broken-modules")]
 pub mod wallet;
 
 // Economic exploit simulation framework (#444).
@@ -211,6 +213,10 @@ pub use session::stateless::{
 pub use time_travel_debugger::{
     CacheStats, ContractState, ForkedState, LedgerSnapshot, TestResult, TimeTravelConfig,
     TimeTravelDebugger, UpgradeSimulationResult,
+};
+#[cfg(feature = "broken-modules")]
+pub use upload_sanitization::{
+    SanitizationPipeline, SignatureValidationResult, SorobanContractInterface,
 };
 #[cfg(feature = "broken-modules")]
 pub use wallet::{

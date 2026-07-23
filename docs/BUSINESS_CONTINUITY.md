@@ -1,211 +1,222 @@
-# Business Continuity Impact Analysis
+# Business Continuity Plan
 
-> **Document Version:** 1.0  
-> **Last Updated:** June 28, 2026  
-> **Issue:** #338  
+## Overview
 
----
+This document outlines the business continuity procedures for the Soroban Security Scanner platform. It covers disaster recovery, high availability, backup strategies, and security hardening measures.
 
-## 1. Business Impact Analysis (BIA)
+## Table of Contents
 
-### 1.1 Critical Business Functions
-
-| Function | Priority | Max Tolerable Downtime | Financial Impact/Hour |
-|----------|----------|------------------------|----------------------|
-| Scan Processing Engine | Critical | 1 hour | $5,000 |
-| API / User Access | Critical | 2 hours | $8,000 |
-| Vulnerability Database | High | 4 hours | $3,000 |
-| Bounty Marketplace | High | 4 hours | $2,500 |
-| Notification Service | Medium | 8 hours | $1,000 |
-| Analytics Dashboard | Low | 24 hours | $500 |
-| Documentation Portal | Low | 48 hours | $200 |
-
-### 1.2 Dependencies
-
-| Service | Upstream Dependencies | Downstream Dependents |
-|---------|----------------------|----------------------|
-| Scan Engine | Stellar RPC, PostgreSQL | API, Frontend |
-| API Server | PostgreSQL, Redis, Scan Engine | Frontend, External API users |
-| Database | None | All services |
-| Redis Cache | None | API Server, Rate Limiter |
-
-### 1.3 Revenue Impact
-
-```
-Scenario: 8-hour complete outage
-├── Direct revenue loss: $40,000 - $64,000
-├── Bounty marketplace impact: $12,500 - $20,000
-├── Reputation damage (estimated): $15,000 - $30,000
-└── SLA penalty risk: $5,000 - $15,000
-
-Total estimated impact: $72,500 - $129,000
-```
+1. [Disaster Recovery](#disaster-recovery)
+2. [High Availability](#high-availability)
+3. [Backup and Restore](#backup-and-restore)
+4. [Security Hardening](#security-hardening)
+5. [Incident Response](#incident-response)
+6. [Monitoring and Alerting](#monitoring-and-alerting)
 
 ---
 
-## 2. Risk Assessment
+## Disaster Recovery
 
-### 2.1 Threat Matrix
+### Recovery Time Objectives (RTO)
 
-| Threat | Likelihood | Impact | Risk Level | Mitigation |
-|--------|-----------|--------|------------|------------|
-| Database corruption | Low | Critical | High | Automated backups, WAL archiving |
-| AWS Region outage | Low | Critical | High | Multi-region deployment |
-| Ransomware attack | Low | Critical | High | Immutable backups, air-gapped copies |
-| DDoS attack | Medium | High | Medium | CloudFront + WAF + rate limiting |
-| Accidental deletion | Medium | Medium | Medium | Point-in-time recovery, soft deletes |
-| Configuration error | Medium | Medium | Medium | IaC, change management, canary deploys |
-| Third-party dependency failure | Medium | Low | Low | Graceful degradation, circuit breakers |
-| Natural disaster | Very Low | Critical | High | Multi-region, documented procedures |
+| Component | RTO | Description |
+|-----------|-----|-------------|
+| Scanner API | 5 minutes | API service recovery |
+| Database | 15 minutes | Database failover |
+| Full Platform | 30 minutes | Complete system recovery |
 
-### 2.2 Single Points of Failure
+### Recovery Point Objectives (RPO)
 
-| Component | SPOF? | Mitigation |
-|-----------|-------|------------|
-| Primary RDS instance | Yes (without Multi-AZ) | Multi-AZ deployment |
-| Single region | Yes | Cross-region failover |
-| S3 bucket (single region) | Yes | Cross-region replication |
-| DNS (Route53) | Low risk | AWS managed, multi-region |
-| SSL Certificates (ACM) | Low risk | Auto-renewal, multi-region |
+| Data Type | RPO | Description |
+|-----------|-----|-------------|
+| Scan Results | 5 minutes | Maximum data loss acceptable |
+| User Data | 1 minute | User configuration data |
+| Audit Logs | 1 hour | Audit trail data |
 
----
+### Recovery Procedures
 
-## 3. Recovery Strategies
-
-### 3.1 Strategy Selection
-
-| Strategy | RTO | RPO | Cost | Chosen? |
-|----------|-----|-----|------|---------|
-| Backup & Restore | 4-24 hours | 1-24 hours | $ | For non-critical data |
-| Pilot Light | 1-4 hours | Minutes | $$ | For core database |
-| Warm Standby | <1 hour | Seconds | $$$ | For API/critical services |
-| Multi-Site Active/Active | <1 minute | Near-zero | $$$$ | Future consideration |
-
-**Chosen Strategy: Warm Standby** — provides the best balance of RTO/RPO vs. cost for our requirements.
-
-### 3.2 Recovery Priorities
-
-```
-Priority 1 (0-2 hours): Database + API Server
-Priority 2 (2-4 hours): Scan Engine + Frontend
-Priority 3 (4-8 hours): Bounty Marketplace + Notifications
-Priority 4 (8-24 hours): Analytics + Documentation
-```
+1. **Automated Failover**: The system automatically detects failures and initiates failover to standby instances.
+2. **Manual Intervention**: If automated failover fails, operations team can trigger manual failover via the admin console.
+3. **Data Restoration**: Restore from the most recent backup. Apply incremental backups to minimize data loss.
 
 ---
 
-## 4. Resource Requirements
+## High Availability
 
-### 4.1 Personnel
+### Architecture
 
-| Role | Count | Required Certifications |
-|------|-------|------------------------|
-| DevOps Engineer | 2 | AWS Certified, Kubernetes (CKA) |
-| Database Administrator | 1 | PostgreSQL Certified |
-| Security Engineer | 1 | CISSP or equivalent |
-| Engineering Manager | 1 | N/A |
+The platform runs in a multi-zone Kubernetes cluster with:
+- Minimum 3 replicas of each service
+- Pod anti-affinity rules to spread across zones
+- Horizontal Pod Autoscaling based on CPU/memory utilization
+- Readiness and liveness probes configured for all services
 
-### 4.2 Infrastructure (Secondary Region - Warm Standby)
+### Connection Pool Management
 
-| Resource | Specification | Cost/Month |
-|----------|--------------|------------|
-| RDS Instance | db.t3.medium (single-AZ) | $300 |
-| EKS Cluster | Minimal nodes (2x t3.medium) | $100 |
-| ElastiCache | cache.t3.micro | $30 |
-| S3 Storage | 1TB (cross-region replication) | $25 |
-| Data Transfer | ~100GB/month cross-region | $20 |
-| **Total** | | **~$475/month** |
+The database connection pool is configured with:
+- Maximum connections: 20 (configurable)
+- Minimum idle connections: 5
+- Connection timeout: 30 seconds
+- Health check every 15 seconds
 
-### 4.3 Tools & Software
-
-- Terraform (IaC for multi-region deployment)
-- AWS CLI + SDK
-- PostgreSQL client tools
-- kubectl + Helm
-- Prometheus + Grafana (monitoring)
-- PagerDuty (alerting)
+Pool utilization is monitored via Prometheus metrics (see [Monitoring and Alerting](#monitoring-and-alerting)).
 
 ---
 
-## 5. Testing & Maintenance
+## Backup and Restore
 
-### 5.1 Testing Cadence
+### Database Backups
 
-| Activity | Frequency | Owner | Success Criteria |
-|----------|-----------|-------|-----------------|
-| Backup restore test | Monthly | DevOps | Full restore < 2 hours |
-| Failover drill | Quarterly | DevOps Lead | RTO < 4 hours, RPO < 1 hour |
-| Tabletop exercise | Semi-annual | Engineering Manager | All team members know their roles |
-| Plan review | Quarterly | DevOps Lead | Plan updated with lessons learned |
-| Security audit | Annual | Security Engineer | No critical findings |
+- **Full backup**: Daily at 02:00 UTC
+- **Incremental backup**: Every 6 hours
+- **Transaction log backup**: Every 5 minutes
+- **Retention**: 30 days for daily, 7 days for incremental
 
-### 5.2 Continuous Improvement
+### Configuration Backups
 
-- After each incident: Post-mortem within 48 hours
-- After each drill: Lessons learned document within 1 week
-- Quarterly: Update BIA with new services/dependencies
-- Annually: Full plan revision
+- Scanner configuration stored in version control
+- Environment-specific configs in Kubernetes ConfigMaps
+- Secrets managed via HashiCorp Vault
 
 ---
 
-## 6. Communication Plan
+## Security Hardening
 
-### 6.1 Stakeholder Notification Matrix
+### WASM Upload Sanitization
 
-| Audience | SEV1 | SEV2 | SEV3 | SEV4 |
-|----------|------|------|------|------|
-| CTO | Immediate | 15 min | 1 hour | Daily summary |
-| Engineering Team | Immediate | 15 min | 1 hour | Daily summary |
-| Users (status page) | 15 min | 30 min | 1 hour | N/A |
-| Enterprise Customers | 30 min | 1 hour | 4 hours | N/A |
-| Public | 1 hour | 2 hours | N/A | N/A |
+All uploaded WASM binaries are validated through a multi-stage sanitization pipeline:
 
-### 6.2 Communication Channels
+#### Stages
 
-- **Internal:** Slack #incidents channel, PagerDuty
-- **External Status:** status.soroban-scanner.com
-- **Enterprise:** Direct email + Slack Connect
-- **Public:** Twitter/X @SorobanScanner
+1. **Magic Byte Verification**
+   - Validates the WASM magic bytes (`\0asm`) and version (1)
+   - Rejects binaries with invalid or missing magic bytes
+
+2. **Malware Signature Scanning**
+   - Scans against known malware signatures
+   - Detects suspicious patterns (oversized binaries, unusual section names)
+   - Flags functions with suspicious names (e.g., patterns matching `exec`, `shell`, `inject`)
+
+3. **Content Type Validation**
+   - Validates file extension (`.wasm`)
+   - Validates MIME type (`application/wasm`)
+   - Ensures file content matches expected type
+
+4. **Function Signature Validation (SEI Compliance)**
+   - Parses the WASM export section to extract exported function signatures
+   - Validates each exported function against the Stellar Environment Interface (SEI)
+   - Checks: function name, parameter count, parameter types, return types
+   - Supports standard Soroban contract entry points: `init`, `transfer`, `allowance`, `approve`, `balance`, `mint`, `burn`, `upgrade`, `name`, `symbol`, `decimals`, `total_supply`
+
+#### Configuration
+
+The SEI interface is defined in a configurable JSON file (`config/sei-interface.json`). This file can be updated when Stellar updates the SEI specification without requiring code changes.
+
+#### Strict Signature Checking
+
+The `--strict-signature-check` flag enables strict mode:
+- Rejects uploads with any function signature mismatches
+- Rejects uploads containing functions not in the known SEI interface
+- Recommended for production deployments with high security requirements
+
+#### Warning Levels
+
+| Level | Condition | Action |
+|-------|-----------|--------|
+| INFO | Function matches expected interface | No action required |
+| WARNING | Function not found in known interface | Review function for legitimacy |
+| WARNING | Function parameter count mismatch | Reject or flag for manual review |
+| ERROR | Required function missing | Reject upload |
+| CRITICAL | Strict mode violation | Automatically reject upload |
+
+### Database Connection Pool Security
+
+- All database connections use TLS encryption
+- Connection pooling with configurable limits prevents connection exhaustion
+- Pool utilization alerts at 80% (WARNING) and 95% (CRITICAL)
+- Automated alerting via Prometheus/Grafana integration
+
+### API Security
+
+- Rate limiting on all endpoints
+- Authentication via JWT tokens with configurable expiry
+- Account lockout after multiple failed login attempts
+- OAuth2 support for third-party authentication
 
 ---
 
-## 7. Compliance & Audit
+## Incident Response
 
-### 7.1 Regulatory Requirements
+### Severity Levels
 
-| Requirement | How We Meet It |
-|-------------|---------------|
-| Data backup (GDPR Art. 32) | Encrypted daily backups, cross-region replication |
-| Business continuity (SOC 2 CC7) | Documented DR plan, quarterly testing |
-| Incident response (SOC 2 CC7) | Defined procedures, communication templates |
-| Data integrity (SOC 2 CC6) | Backup verification, checksums, audit trail |
+| Level | Description | Response Time |
+|-------|-------------|---------------|
+| SEV-1 | Complete system outage | < 15 minutes |
+| SEV-2 | Partial system degradation | < 30 minutes |
+| SEV-3 | Minor issue, no user impact | < 4 hours |
+| SEV-4 | Cosmetic issue | < 24 hours |
 
-### 7.2 Audit Trail
+### Incident Response Steps
 
-All recovery actions are logged in the immutable event log (`src/event_logging.rs`) with:
-- Timestamp
-- Actor (who performed the action)
-- Action type (failover, restore, etc.)
-- Result (success/failure)
-- Recovery time achieved
-
----
-
-## 8. Plan Maintenance
-
-This document and all associated procedures are reviewed and updated:
-
-- **Quarterly:** Full review by DevOps Lead
-- **After each incident:** Update based on lessons learned
-- **After each infrastructure change:** Update dependencies and architecture
-- **Annually:** External review by security auditor
-
-### Document Control
-
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0 | 2026-06-28 | Emmanuel-Ugochukwu1 | Initial BIA and BC plan (Issue #338) |
+1. **Detection**: Automated monitoring detects anomalies and triggers alerts
+2. **Triage**: On-call engineer assesses severity and impact
+3. **Containment**: Isolate affected components to prevent cascading failures
+4. **Resolution**: Apply fix or initiate recovery procedures
+5. **Post-mortem**: Document root cause and preventive measures
 
 ---
 
-*For questions about business continuity, contact: devops@soroban-security-scanner.com*
+## Monitoring and Alerting
+
+### Prometheus Metrics
+
+The following metrics are exposed for the database connection pool:
+
+| Metric Name | Type | Description |
+|-------------|------|-------------|
+| `db_pool_active_connections` | Gauge | Currently active connections |
+| `db_pool_idle_connections` | Gauge | Currently idle connections |
+| `db_pool_total_connections` | Gauge | Total connections in pool |
+| `db_pool_wait_queue_depth` | Gauge | Number of waiters in queue |
+| `db_pool_connection_acquire_duration_seconds` | Histogram | Connection acquisition latency |
+
+### Grafana Dashboard
+
+A pre-configured Grafana dashboard is available at `grafana/db-pool-dashboard.json` with panels for:
+- Pool Utilization % (gauge with WARNING/CRITICAL thresholds)
+- Active vs Idle Connections (time series)
+- Connection Wait Time (time series with threshold overlays)
+- Wait Queue Depth (stat panel)
+- Connection Distribution (stacked bar chart)
+- Alert Status (color-coded stat)
+- 99th Percentile Acquisition Latency
+
+### Alert Thresholds
+
+| Metric | WARNING | CRITICAL |
+|--------|---------|----------|
+| Pool Utilization | > 80% | > 95% |
+| Connection Latency | > 100ms | > 500ms |
+
+Hysteresis of 5% is applied to prevent alert flapping.
+
+---
+
+## Maintenance Windows
+
+- **Scheduled maintenance**: Every Sunday 03:00-05:00 UTC
+- **Emergency maintenance**: As needed with 15-minute notice
+- **Database migrations**: Zero-downtime using rolling updates
+
+---
+
+## Contact Information
+
+- **Primary On-call**: ops@soroban-scanner.io
+- **Security Incidents**: security@soroban-scanner.io
+- **Escalation Path**: Platform Engineering Lead → CTO
+
+---
+
+*Last updated: 2026-07-23*
+*Version: 1.0.0*
