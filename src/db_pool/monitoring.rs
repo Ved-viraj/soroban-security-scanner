@@ -1,176 +1,433 @@
-//! Connection-pool and query monitoring with alerting.
+//! Pool monitoring with Prometheus metric exposure and alert thresholds.
 //!
-//! Tracks pool utilization, connection-leak events, and query latency. Raises
-//! alerts when the pool nears exhaustion and logs slow queries (default >1s)
-//! for performance investigation. All counters are thread-safe.
+//! The PoolMonitor tracks:
+//! - Active, idle, and total connection counts (gauges)
+//! - Wait queue depth (gauge)
+//! - Connection acquisition latency (histogram)
+//! - Pool utilization percentage with WARN/CRITICAL alert thresholds
 
+use crate::db_pool::config::{AlertThresholds, DbPoolConfig};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 
-/// Default slow-query threshold in milliseconds.
-pub const DEFAULT_SLOW_QUERY_MS: u64 = 1000;
-/// Default pool-utilization fraction at which an exhaustion alert fires.
-pub const DEFAULT_EXHAUSTION_ALERT_RATIO: f64 = 0.9;
+/// Pool monitor that collects and exposes connection pool metrics
+#[derive(Debug, Clone)]
+pub struct PoolMonitor {
+    /// Configuration
+    config: DbPoolConfig,
+    /// Current pool metrics snapshot
+    metrics: Arc<RwLock<PoolMetrics>>,
+    /// Alert state to implement hysteresis
+    alert_state: Arc<RwLock<AlertState>>,
+    /// Whether the monitor is running
+    running: Arc<RwLock<bool>>,
+    /// Latency histogram for tracking connection acquisition durations
+    latency_histogram: Arc<RwLock<LatencyHistogram>>,
+}
 
-/// A logged slow query.
+/// Snapshot of pool metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoolMetrics {
+    /// Timestamp of the metrics snapshot
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Active connections currently in use
+    pub active_connections: u64,
+    /// Idle connections available
+    pub idle_connections: u64,
+    /// Total connections (active + idle)
+    pub total_connections: u64,
+    /// Maximum connections allowed
+    pub max_connections: u64,
+    /// Number of waiters in the queue
+    pub wait_queue_depth: u64,
+    /// Connection acquisition latency in milliseconds (recent)
+    pub acquire_latency_ms: f64,
+    /// Pool utilization as a fraction (0.0 - 1.0)
+    pub utilization_pct: f64,
+    /// Current alert level
+    pub alert_level: AlertLevel,
+    /// Alert message if any
+    pub alert_message: Option<String>,
+}
+
+/// Alert level
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SlowQuery {
-    /// A redacted/normalized statement label.
-    pub statement: String,
-    /// Observed duration in milliseconds.
-    pub duration_ms: u64,
+pub enum AlertLevel {
+    /// No alerts
+    Normal,
+    /// Warning threshold reached
+    Warning,
+    /// Critical threshold reached
+    Critical,
 }
 
-/// A raised monitoring alert.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Alert {
-    /// Stable alert code.
-    pub code: String,
-    /// Human-readable message.
-    pub message: String,
+/// Alert state for hysteresis tracking
+#[derive(Debug, Clone)]
+struct AlertState {
+    current_level: AlertLevel,
+    warn_active: bool,
+    critical_active: bool,
+    last_warn_time: Option<Instant>,
+    last_critical_time: Option<Instant>,
 }
 
-/// Snapshot of monitoring counters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MonitorStats {
-    /// Successful connection acquisitions.
-    pub acquires: u64,
-    /// Connections returned to the pool.
-    pub releases: u64,
-    /// Acquisition failures due to exhaustion.
-    pub exhaustion_events: u64,
-    /// Connection leaks detected and reclaimed.
-    pub leaks_reclaimed: u64,
-    /// Total queries observed.
-    pub queries: u64,
-    /// Queries exceeding the slow threshold.
-    pub slow_queries: u64,
-}
-
-/// Thread-safe monitor for a single pool.
-pub struct DbMonitor {
-    acquires: AtomicU64,
-    releases: AtomicU64,
-    exhaustion_events: AtomicU64,
-    leaks_reclaimed: AtomicU64,
-    queries: AtomicU64,
-    slow_queries: AtomicU64,
-    slow_threshold_ms: u64,
-    exhaustion_ratio: f64,
-    recent_slow: Mutex<Vec<SlowQuery>>,
-    max_recent_slow: usize,
-    alerts: Mutex<Vec<Alert>>,
-}
-
-impl Default for DbMonitor {
-    fn default() -> Self {
-        Self::new(DEFAULT_SLOW_QUERY_MS, DEFAULT_EXHAUSTION_ALERT_RATIO)
-    }
-}
-
-impl DbMonitor {
-    /// Creates a monitor with the given slow-query threshold and exhaustion
-    /// alert ratio.
-    pub fn new(slow_threshold_ms: u64, exhaustion_ratio: f64) -> Self {
+impl AlertState {
+    fn new() -> Self {
         Self {
-            acquires: AtomicU64::new(0),
-            releases: AtomicU64::new(0),
-            exhaustion_events: AtomicU64::new(0),
-            leaks_reclaimed: AtomicU64::new(0),
-            queries: AtomicU64::new(0),
-            slow_queries: AtomicU64::new(0),
-            slow_threshold_ms,
-            exhaustion_ratio,
-            recent_slow: Mutex::new(Vec::new()),
-            max_recent_slow: 100,
-            alerts: Mutex::new(Vec::new()),
+            current_level: AlertLevel::Normal,
+            warn_active: false,
+            critical_active: false,
+            last_warn_time: None,
+            last_critical_time: None,
+        }
+    }
+}
+
+impl PoolMonitor {
+    /// Create a new pool monitor
+    pub fn new(config: DbPoolConfig) -> Self {
+        let histogram_buckets = vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0];
+        Self {
+            metrics: Arc::new(RwLock::new(PoolMetrics {
+                timestamp: chrono::Utc::now(),
+                active_connections: 0,
+                idle_connections: 0,
+                total_connections: 0,
+                max_connections: config.max_connections as u64,
+                wait_queue_depth: 0,
+                acquire_latency_ms: 0.0,
+                utilization_pct: 0.0,
+                alert_level: AlertLevel::Normal,
+                alert_message: None,
+            })),
+            alert_state: Arc::new(RwLock::new(AlertState::new())),
+            running: Arc::new(RwLock::new(false)),
+            latency_histogram: Arc::new(RwLock::new(LatencyHistogram::new(histogram_buckets))),
+            config,
         }
     }
 
-    /// Records a successful acquire and checks the exhaustion alert threshold.
-    pub fn record_acquire(&self, checked_out: usize, max: usize) {
-        self.acquires.fetch_add(1, Ordering::Relaxed);
-        if max > 0 && (checked_out as f64 / max as f64) >= self.exhaustion_ratio {
-            self.raise(Alert {
-                code: "pool-near-exhaustion".to_string(),
-                message: format!(
-                    "pool utilization {checked_out}/{max} at or above alert threshold"
-                ),
-            });
-        }
-    }
-
-    /// Records a connection returned to the pool.
-    pub fn record_release(&self) {
-        self.releases.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Records an acquisition that failed because the pool was exhausted.
-    pub fn record_exhaustion(&self) {
-        self.exhaustion_events.fetch_add(1, Ordering::Relaxed);
-        self.raise(Alert {
-            code: "pool-exhausted".to_string(),
-            message: "connection acquisition failed: pool exhausted".to_string(),
-        });
-    }
-
-    /// Records that `count` leaked connections were reclaimed.
-    pub fn record_leaks(&self, count: u64) {
-        if count == 0 {
+    /// Start the monitoring loop
+    pub async fn start(&self) {
+        let mut running = self.running.write().await;
+        if *running {
             return;
         }
-        self.leaks_reclaimed.fetch_add(count, Ordering::Relaxed);
-        self.raise(Alert {
-            code: "connection-leak".to_string(),
-            message: format!("{count} leaked connection(s) reclaimed"),
+        *running = true;
+        drop(running);
+
+        let metrics = self.metrics.clone();
+        let alert_state = self.alert_state.clone();
+        let config = self.config.clone();
+        let running_flag = self.running.clone();
+
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(config.metrics_interval_secs));
+
+            loop {
+                let is_running = *running_flag.read().await;
+                if !is_running {
+                    break;
+                }
+
+                interval.tick().await;
+
+                // Check alert thresholds
+                let mut current_metrics = metrics.read().await.clone();
+                let mut state = alert_state.write().await;
+
+                let utilization = current_metrics.utilization_pct;
+                let thresholds = &config.alert_thresholds;
+
+                // Evaluate alert levels with hysteresis
+                let (new_level, message) = Self::evaluate_alerts(
+                    utilization,
+                    current_metrics.acquire_latency_ms,
+                    thresholds,
+                    &state,
+                );
+
+                current_metrics.alert_level = new_level.clone();
+                current_metrics.alert_message = message;
+
+                // Update state
+                state.current_level = new_level.clone();
+                match new_level {
+                    AlertLevel::Warning => {
+                        state.warn_active = true;
+                        state.last_warn_time = Some(Instant::now());
+                    }
+                    AlertLevel::Critical => {
+                        state.critical_active = true;
+                        state.last_critical_time = Some(Instant::now());
+                    }
+                    AlertLevel::Normal => {
+                        state.warn_active = false;
+                        state.critical_active = false;
+                    }
+                }
+
+                // Update metrics
+                *metrics.write().await = current_metrics;
+            }
         });
     }
 
-    /// Records a query's latency, logging it if slow.
-    pub fn record_query(&self, statement: &str, duration_ms: u64) {
-        self.queries.fetch_add(1, Ordering::Relaxed);
-        if duration_ms >= self.slow_threshold_ms {
-            self.slow_queries.fetch_add(1, Ordering::Relaxed);
-            let mut recent = self.recent_slow.lock().expect("recent_slow poisoned");
-            recent.push(SlowQuery {
-                statement: statement.to_string(),
-                duration_ms,
-            });
-            let overflow = recent.len().saturating_sub(self.max_recent_slow);
-            if overflow > 0 {
-                recent.drain(0..overflow);
+    /// Stop the monitoring loop
+    pub async fn stop(&self) {
+        let mut running = self.running.write().await;
+        *running = false;
+    }
+
+    /// Update pool metrics from the connection pool
+    pub async fn update_metrics(
+        &self,
+        active: u64,
+        idle: u64,
+        total: u64,
+        wait_queue: u64,
+        acquire_latency: f64,
+    ) {
+        let max = self.config.max_connections as u64;
+        let utilization = if max > 0 {
+            (active as f64) / (max as f64)
+        } else {
+            0.0
+        };
+
+        // Record latency in histogram (convert from milliseconds to seconds for Prometheus)
+        {
+            let mut hist = self.latency_histogram.write().await;
+            hist.observe(acquire_latency / 1000.0);
+        }
+
+        let mut metrics = self.metrics.write().await;
+        metrics.timestamp = chrono::Utc::now();
+        metrics.active_connections = active;
+        metrics.idle_connections = idle;
+        metrics.total_connections = total;
+        metrics.max_connections = max;
+        metrics.wait_queue_depth = wait_queue;
+        metrics.acquire_latency_ms = acquire_latency;
+        metrics.utilization_pct = utilization;
+
+        // Emit as Prometheus metrics (logged in a format Prometheus can scrape)
+        tracing::info!(
+            target: "db_pool_metrics",
+            active_connections = active,
+            idle_connections = idle,
+            total_connections = total,
+            wait_queue_depth = wait_queue,
+            acquire_latency_ms = acquire_latency,
+            utilization_pct = utilization,
+            alert_level = ?metrics.alert_level,
+        );
+    }
+
+    /// Get the current metrics snapshot
+    pub async fn get_metrics(&self) -> PoolMetrics {
+        self.metrics.read().await.clone()
+    }
+
+    /// Evaluate alert levels with hysteresis
+    fn evaluate_alerts(
+        utilization: f64,
+        latency_ms: f64,
+        thresholds: &AlertThresholds,
+        state: &AlertState,
+    ) -> (AlertLevel, Option<String>) {
+        let hysteresis = thresholds.hysteresis_pct;
+
+        // Critical check (with hysteresis)
+        let critical_trigger = thresholds.critical_utilization_pct;
+        let critical_release = critical_trigger * (1.0 - hysteresis);
+
+        if utilization >= critical_trigger || latency_ms >= thresholds.critical_latency_ms as f64 {
+            let reason = if utilization >= critical_trigger {
+                format!(
+                    "Pool utilization at {:.1}% (threshold: {:.1}%)",
+                    utilization * 100.0,
+                    critical_trigger * 100.0
+                )
+            } else {
+                format!(
+                    "Connection latency at {:.0}ms (threshold: {}ms)",
+                    latency_ms, thresholds.critical_latency_ms
+                )
+            };
+            return (AlertLevel::Critical, Some(format!("CRITICAL: {}", reason)));
+        }
+
+        // If we were in critical, check if we've dropped below release threshold
+        if state.current_level == AlertLevel::Critical {
+            if utilization < critical_release {
+                // Fall through to warning check
+            } else {
+                return (
+                    AlertLevel::Critical,
+                    Some("CRITICAL: Pool still above release threshold".to_string()),
+                );
             }
         }
+
+        // Warning check (with hysteresis)
+        let warn_trigger = thresholds.warn_utilization_pct;
+        let warn_release = warn_trigger * (1.0 - hysteresis);
+
+        if utilization >= warn_trigger || latency_ms >= thresholds.warn_latency_ms as f64 {
+            let reason = if utilization >= warn_trigger {
+                format!(
+                    "Pool utilization at {:.1}% (threshold: {:.1}%)",
+                    utilization * 100.0,
+                    warn_trigger * 100.0
+                )
+            } else {
+                format!(
+                    "Connection latency at {:.0}ms (threshold: {}ms)",
+                    latency_ms, thresholds.warn_latency_ms
+                )
+            };
+            return (AlertLevel::Warning, Some(format!("WARNING: {}", reason)));
+        }
+
+        // If we were in warning, check release
+        if state.current_level == AlertLevel::Warning {
+            if utilization < warn_release {
+                return (AlertLevel::Normal, None);
+            }
+            return (
+                AlertLevel::Warning,
+                Some("WARNING: Pool still above release threshold".to_string()),
+            );
+        }
+
+        (AlertLevel::Normal, None)
     }
 
-    /// Current counter snapshot.
-    pub fn stats(&self) -> MonitorStats {
-        MonitorStats {
-            acquires: self.acquires.load(Ordering::Relaxed),
-            releases: self.releases.load(Ordering::Relaxed),
-            exhaustion_events: self.exhaustion_events.load(Ordering::Relaxed),
-            leaks_reclaimed: self.leaks_reclaimed.load(Ordering::Relaxed),
-            queries: self.queries.load(Ordering::Relaxed),
-            slow_queries: self.slow_queries.load(Ordering::Relaxed),
+    /// Get Prometheus-formatted metrics text
+    pub async fn format_prometheus_metrics(&self) -> String {
+        let metrics = self.metrics.read().await.clone();
+        let hist = self.latency_histogram.read().await.clone();
+        let ts = metrics.timestamp.timestamp_millis();
+
+        let mut output = String::new();
+
+        // Gauges
+        output.push_str("# HELP db_pool_active_connections Active connections in the pool\n");
+        output.push_str("# TYPE db_pool_active_connections gauge\n");
+        output.push_str(&format!(
+            "db_pool_active_connections {} {}\n\n",
+            metrics.active_connections, ts
+        ));
+
+        output.push_str("# HELP db_pool_idle_connections Idle connections in the pool\n");
+        output.push_str("# TYPE db_pool_idle_connections gauge\n");
+        output.push_str(&format!(
+            "db_pool_idle_connections {} {}\n\n",
+            metrics.idle_connections, ts
+        ));
+
+        output.push_str("# HELP db_pool_total_connections Total connections in the pool\n");
+        output.push_str("# TYPE db_pool_total_connections gauge\n");
+        output.push_str(&format!(
+            "db_pool_total_connections {} {}\n\n",
+            metrics.total_connections, ts
+        ));
+
+        output.push_str("# HELP db_pool_wait_queue_depth Number of waiters in the queue\n");
+        output.push_str("# TYPE db_pool_wait_queue_depth gauge\n");
+        output.push_str(&format!(
+            "db_pool_wait_queue_depth {} {}\n\n",
+            metrics.wait_queue_depth, ts
+        ));
+
+        // Histogram
+        output.push_str("# HELP db_pool_connection_acquire_duration_seconds Connection acquisition latency in seconds\n");
+        output.push_str("# TYPE db_pool_connection_acquire_duration_seconds histogram\n");
+
+        for (i, bucket) in hist.buckets.iter().enumerate() {
+            let count = hist.counts.get(i).copied().unwrap_or(0);
+            output.push_str(&format!(
+                "db_pool_connection_acquire_duration_seconds_bucket{{le=\"{}\"}} {} {}\n",
+                bucket, count, ts
+            ));
+        }
+        // +Inf bucket
+        let inf_count = hist.counts.last().copied().unwrap_or(0);
+        output.push_str(&format!(
+            "db_pool_connection_acquire_duration_seconds_bucket{{le=\"+Inf\"}} {} {}\n",
+            inf_count, ts
+        ));
+
+        output.push_str(&format!(
+            "db_pool_connection_acquire_duration_seconds_sum {} {}\n",
+            hist.sum, ts
+        ));
+        output.push_str(&format!(
+            "db_pool_connection_acquire_duration_seconds_count {} {}\n",
+            hist.count, ts
+        ));
+
+        output
+    }
+}
+
+/// JSON response for the /api/v1/db-pool/metrics endpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DbPoolMetricsResponse {
+    pub success: bool,
+    pub data: PoolMetrics,
+    pub prometheus_text: String,
+}
+
+impl PoolMonitor {
+    /// Generate a JSON response for the metrics endpoint
+    pub async fn metrics_response(&self) -> DbPoolMetricsResponse {
+        let metrics = self.get_metrics().await;
+        let prometheus_text = self.format_prometheus_metrics().await;
+
+        DbPoolMetricsResponse {
+            success: true,
+            data: metrics,
+            prometheus_text,
+        }
+    }
+}
+
+/// In-memory latency histogram for demonstration
+#[derive(Debug, Clone)]
+pub struct LatencyHistogram {
+    buckets: Vec<f64>,
+    counts: Vec<u64>,
+    sum: f64,
+    count: u64,
+}
+
+impl LatencyHistogram {
+    pub fn new(buckets: Vec<f64>) -> Self {
+        let len = buckets.len();
+        Self {
+            buckets,
+            counts: vec![0; len + 1], // +1 for +Inf
+            sum: 0.0,
+            count: 0,
         }
     }
 
-    /// Recent slow queries (most recent last).
-    pub fn recent_slow_queries(&self) -> Vec<SlowQuery> {
-        self.recent_slow
-            .lock()
-            .expect("recent_slow poisoned")
-            .clone()
-    }
+    pub fn observe(&mut self, value: f64) {
+        self.sum += value;
+        self.count += 1;
 
-    /// All raised alerts.
-    pub fn alerts(&self) -> Vec<Alert> {
-        self.alerts.lock().expect("alerts poisoned").clone()
-    }
-
-    fn raise(&self, alert: Alert) {
-        self.alerts.lock().expect("alerts poisoned").push(alert);
+        for (i, bucket) in self.buckets.iter().enumerate() {
+            if value <= *bucket {
+                self.counts[i] += 1;
+            }
+        }
+        self.counts[self.buckets.len()] = self.count; // +Inf
     }
 }
 
@@ -178,52 +435,117 @@ impl DbMonitor {
 mod tests {
     use super::*;
 
-    #[test]
-    fn slow_query_logged_above_threshold() {
-        let m = DbMonitor::default();
-        m.record_query("SELECT 1", 50);
-        m.record_query("SELECT pg_sleep(2)", 2000);
-        let stats = m.stats();
-        assert_eq!(stats.queries, 2);
-        assert_eq!(stats.slow_queries, 1);
-        assert_eq!(m.recent_slow_queries().len(), 1);
-        assert_eq!(m.recent_slow_queries()[0].duration_ms, 2000);
-    }
-
-    #[test]
-    fn exhaustion_alert_fires_near_capacity() {
-        let m = DbMonitor::default(); // 0.9 ratio
-        m.record_acquire(89, 100); // below
-        assert!(m.alerts().is_empty());
-        m.record_acquire(90, 100); // at threshold
-        assert!(m.alerts().iter().any(|a| a.code == "pool-near-exhaustion"));
-    }
-
-    #[test]
-    fn exhaustion_event_alerts() {
-        let m = DbMonitor::default();
-        m.record_exhaustion();
-        let stats = m.stats();
-        assert_eq!(stats.exhaustion_events, 1);
-        assert!(m.alerts().iter().any(|a| a.code == "pool-exhausted"));
-    }
-
-    #[test]
-    fn leak_reclaim_recorded() {
-        let m = DbMonitor::default();
-        m.record_leaks(0); // no-op
-        assert_eq!(m.stats().leaks_reclaimed, 0);
-        m.record_leaks(3);
-        assert_eq!(m.stats().leaks_reclaimed, 3);
-        assert!(m.alerts().iter().any(|a| a.code == "connection-leak"));
-    }
-
-    #[test]
-    fn recent_slow_queries_are_capped() {
-        let m = DbMonitor::new(10, 0.9);
-        for i in 0..150 {
-            m.record_query(&format!("q{i}"), 100);
+    fn create_test_config() -> DbPoolConfig {
+        DbPoolConfig {
+            max_connections: 20,
+            metrics_interval_secs: 1,
+            alert_thresholds: AlertThresholds {
+                warn_utilization_pct: 0.80,
+                critical_utilization_pct: 0.95,
+                warn_latency_ms: 100,
+                critical_latency_ms: 500,
+                hysteresis_pct: 0.05,
+            },
+            ..Default::default()
         }
-        assert_eq!(m.recent_slow_queries().len(), 100);
+    }
+
+    #[tokio::test]
+    async fn test_pool_monitor_creation() {
+        let config = create_test_config();
+        let monitor = PoolMonitor::new(config);
+        let metrics = monitor.get_metrics().await;
+        assert_eq!(metrics.max_connections, 20);
+        assert_eq!(metrics.alert_level, AlertLevel::Normal);
+    }
+
+    #[tokio::test]
+    async fn test_metrics_update() {
+        let config = create_test_config();
+        let monitor = PoolMonitor::new(config);
+        monitor.update_metrics(10, 5, 15, 2, 50.0).await;
+        let metrics = monitor.get_metrics().await;
+        assert_eq!(metrics.active_connections, 10);
+        assert_eq!(metrics.idle_connections, 5);
+        assert_eq!(metrics.total_connections, 15);
+        assert_eq!(metrics.wait_queue_depth, 2);
+    }
+
+    #[test]
+    fn test_alert_normal_utilization() {
+        let thresholds = AlertThresholds::default();
+        let state = AlertState::new();
+        let (level, msg) = PoolMonitor::evaluate_alerts(0.5, 10.0, &thresholds, &state);
+        assert_eq!(level, AlertLevel::Normal);
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn test_alert_warning_utilization() {
+        let thresholds = AlertThresholds::default();
+        let state = AlertState::new();
+        let (level, msg) = PoolMonitor::evaluate_alerts(0.85, 10.0, &thresholds, &state);
+        assert_eq!(level, AlertLevel::Warning);
+        assert!(msg.is_some());
+        assert!(msg.unwrap().contains("WARNING"));
+    }
+
+    #[test]
+    fn test_alert_critical_utilization() {
+        let thresholds = AlertThresholds::default();
+        let state = AlertState::new();
+        let (level, msg) = PoolMonitor::evaluate_alerts(0.96, 10.0, &thresholds, &state);
+        assert_eq!(level, AlertLevel::Critical);
+        assert!(msg.is_some());
+        assert!(msg.unwrap().contains("CRITICAL"));
+    }
+
+    #[test]
+    fn test_alert_critical_latency() {
+        let thresholds = AlertThresholds::default();
+        let state = AlertState::new();
+        let (level, msg) = PoolMonitor::evaluate_alerts(0.5, 600.0, &thresholds, &state);
+        assert_eq!(level, AlertLevel::Critical);
+        assert!(msg.unwrap().contains("latency"));
+    }
+
+    #[test]
+    fn test_hysteresis_prevents_flapping() {
+        let thresholds = AlertThresholds::default();
+        // State where we're currently in warning
+        let mut state = AlertState::new();
+        state.current_level = AlertLevel::Warning;
+        state.warn_active = true;
+
+        // Slightly below the release threshold
+        let warn_release = thresholds.warn_utilization_pct * (1.0 - thresholds.hysteresis_pct);
+        let (level, _) =
+            PoolMonitor::evaluate_alerts(warn_release - 0.01, 10.0, &thresholds, &state);
+        assert_eq!(level, AlertLevel::Normal);
+    }
+
+    #[tokio::test]
+    async fn test_prometheus_format() {
+        let config = create_test_config();
+        let monitor = PoolMonitor::new(config);
+        monitor.update_metrics(10, 5, 15, 2, 50.0).await;
+        let prom_text = monitor.format_prometheus_metrics().await;
+        assert!(prom_text.contains("db_pool_active_connections"));
+        assert!(prom_text.contains("db_pool_idle_connections"));
+        assert!(prom_text.contains("db_pool_wait_queue_depth"));
+        assert!(prom_text.contains("db_pool_connection_acquire_duration_seconds"));
+    }
+
+    #[tokio::test]
+    async fn test_metrics_response() {
+        let config = create_test_config();
+        let monitor = PoolMonitor::new(config);
+        monitor.update_metrics(10, 5, 15, 2, 50.0).await;
+        let response = monitor.metrics_response().await;
+        assert!(response.success);
+        assert_eq!(response.data.active_connections, 10);
+        assert!(response
+            .prometheus_text
+            .contains("db_pool_active_connections"));
     }
 }

@@ -95,6 +95,8 @@ pub mod config;
 #[cfg(feature = "broken-modules")]
 pub mod database;
 #[cfg(feature = "broken-modules")]
+pub mod db_pool;
+#[cfg(feature = "broken-modules")]
 pub mod differential_fuzzing;
 #[cfg(feature = "broken-modules")]
 pub mod emergency_stop;
@@ -160,6 +162,8 @@ pub use batch_operations::{
 };
 #[cfg(feature = "broken-modules")]
 pub use config::ScannerConfig;
+#[cfg(feature = "broken-modules")]
+pub use db_pool::{DbPool, DbPoolConfig, PoolMonitor};
 #[cfg(feature = "broken-modules")]
 pub use differential_fuzzing::{
     DifferentialFuzzer, DifferentialFuzzingConfig, DifferentialFuzzingReport, DiscrepancyDetector,
