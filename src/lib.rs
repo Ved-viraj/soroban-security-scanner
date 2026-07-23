@@ -103,6 +103,8 @@ pub mod session;
 #[cfg(feature = "broken-modules")]
 pub mod time_travel_debugger;
 #[cfg(feature = "broken-modules")]
+pub mod db_pool;
+#[cfg(feature = "broken-modules")]
 pub mod wallet;
 
 #[cfg(feature = "broken-modules")]
@@ -165,6 +167,8 @@ pub use time_travel_debugger::{
     CacheStats, ContractState, ForkedState, LedgerSnapshot, TestResult, TimeTravelConfig,
     TimeTravelDebugger, UpgradeSimulationResult,
 };
+#[cfg(feature = "broken-modules")]
+pub use db_pool::{DbPool, DbPoolConfig, PoolMonitor};
 #[cfg(feature = "broken-modules")]
 pub use wallet::{
     CreateWalletRequest, ImportWalletRequest, InMemoryWalletStore, RestoreWalletRequest, Wallet,
