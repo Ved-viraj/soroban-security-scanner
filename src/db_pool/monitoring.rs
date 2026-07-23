@@ -125,9 +125,8 @@ impl PoolMonitor {
         let running_flag = self.running.clone();
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(
-                Duration::from_secs(config.metrics_interval_secs),
-            );
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(config.metrics_interval_secs));
 
             loop {
                 let is_running = *running_flag.read().await;
@@ -260,10 +259,7 @@ impl PoolMonitor {
                     latency_ms, thresholds.critical_latency_ms
                 )
             };
-            return (
-                AlertLevel::Critical,
-                Some(format!("CRITICAL: {}", reason)),
-            );
+            return (AlertLevel::Critical, Some(format!("CRITICAL: {}", reason)));
         }
 
         // If we were in critical, check if we've dropped below release threshold
@@ -295,10 +291,7 @@ impl PoolMonitor {
                     latency_ms, thresholds.warn_latency_ms
                 )
             };
-            return (
-                AlertLevel::Warning,
-                Some(format!("WARNING: {}", reason)),
-            );
+            return (AlertLevel::Warning, Some(format!("WARNING: {}", reason)));
         }
 
         // If we were in warning, check release
@@ -326,19 +319,31 @@ impl PoolMonitor {
         // Gauges
         output.push_str("# HELP db_pool_active_connections Active connections in the pool\n");
         output.push_str("# TYPE db_pool_active_connections gauge\n");
-        output.push_str(&format!("db_pool_active_connections {} {}\n\n", metrics.active_connections, ts));
+        output.push_str(&format!(
+            "db_pool_active_connections {} {}\n\n",
+            metrics.active_connections, ts
+        ));
 
         output.push_str("# HELP db_pool_idle_connections Idle connections in the pool\n");
         output.push_str("# TYPE db_pool_idle_connections gauge\n");
-        output.push_str(&format!("db_pool_idle_connections {} {}\n\n", metrics.idle_connections, ts));
+        output.push_str(&format!(
+            "db_pool_idle_connections {} {}\n\n",
+            metrics.idle_connections, ts
+        ));
 
         output.push_str("# HELP db_pool_total_connections Total connections in the pool\n");
         output.push_str("# TYPE db_pool_total_connections gauge\n");
-        output.push_str(&format!("db_pool_total_connections {} {}\n\n", metrics.total_connections, ts));
+        output.push_str(&format!(
+            "db_pool_total_connections {} {}\n\n",
+            metrics.total_connections, ts
+        ));
 
         output.push_str("# HELP db_pool_wait_queue_depth Number of waiters in the queue\n");
         output.push_str("# TYPE db_pool_wait_queue_depth gauge\n");
-        output.push_str(&format!("db_pool_wait_queue_depth {} {}\n\n", metrics.wait_queue_depth, ts));
+        output.push_str(&format!(
+            "db_pool_wait_queue_depth {} {}\n\n",
+            metrics.wait_queue_depth, ts
+        ));
 
         // Histogram
         output.push_str("# HELP db_pool_connection_acquire_duration_seconds Connection acquisition latency in seconds\n");
@@ -458,9 +463,7 @@ mod tests {
     async fn test_metrics_update() {
         let config = create_test_config();
         let monitor = PoolMonitor::new(config);
-        monitor
-            .update_metrics(10, 5, 15, 2, 50.0)
-            .await;
+        monitor.update_metrics(10, 5, 15, 2, 50.0).await;
         let metrics = monitor.get_metrics().await;
         assert_eq!(metrics.active_connections, 10);
         assert_eq!(metrics.idle_connections, 5);
@@ -516,7 +519,8 @@ mod tests {
 
         // Slightly below the release threshold
         let warn_release = thresholds.warn_utilization_pct * (1.0 - thresholds.hysteresis_pct);
-        let (level, _) = PoolMonitor::evaluate_alerts(warn_release - 0.01, 10.0, &thresholds, &state);
+        let (level, _) =
+            PoolMonitor::evaluate_alerts(warn_release - 0.01, 10.0, &thresholds, &state);
         assert_eq!(level, AlertLevel::Normal);
     }
 
@@ -540,6 +544,8 @@ mod tests {
         let response = monitor.metrics_response().await;
         assert!(response.success);
         assert_eq!(response.data.active_connections, 10);
-        assert!(response.prometheus_text.contains("db_pool_active_connections"));
+        assert!(response
+            .prometheus_text
+            .contains("db_pool_active_connections"));
     }
 }

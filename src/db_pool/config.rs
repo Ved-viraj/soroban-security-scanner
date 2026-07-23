@@ -83,11 +83,9 @@ impl DbPoolConfig {
     /// Create a new configuration from environment variables
     pub fn from_env() -> Self {
         Self {
-            database_url: std::env::var("DATABASE_URL")
-                .unwrap_or_else(|_| {
-                    "postgresql://postgres:password@localhost:5432/soroban_security_scanner"
-                        .to_string()
-                }),
+            database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+                "postgresql://postgres:password@localhost:5432/soroban_security_scanner".to_string()
+            }),
             max_connections: std::env::var("DB_POOL_MAX_CONNECTIONS")
                 .unwrap_or_else(|_| "20".to_string())
                 .parse()

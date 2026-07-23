@@ -95,6 +95,8 @@ pub mod config;
 #[cfg(feature = "broken-modules")]
 pub mod database;
 #[cfg(feature = "broken-modules")]
+pub mod db_pool;
+#[cfg(feature = "broken-modules")]
 pub mod differential_fuzzing;
 #[cfg(feature = "broken-modules")]
 pub mod emergency_stop;
@@ -135,8 +137,6 @@ pub mod storage_safety;
 #[cfg(feature = "broken-modules")]
 pub mod time_travel_debugger;
 #[cfg(feature = "broken-modules")]
-pub mod db_pool;
-#[cfg(feature = "broken-modules")]
 pub mod wallet;
 
 // Economic exploit simulation framework (#444).
@@ -162,6 +162,8 @@ pub use batch_operations::{
 };
 #[cfg(feature = "broken-modules")]
 pub use config::ScannerConfig;
+#[cfg(feature = "broken-modules")]
+pub use db_pool::{DbPool, DbPoolConfig, PoolMonitor};
 #[cfg(feature = "broken-modules")]
 pub use differential_fuzzing::{
     DifferentialFuzzer, DifferentialFuzzingConfig, DifferentialFuzzingReport, DiscrepancyDetector,
@@ -210,8 +212,6 @@ pub use time_travel_debugger::{
     CacheStats, ContractState, ForkedState, LedgerSnapshot, TestResult, TimeTravelConfig,
     TimeTravelDebugger, UpgradeSimulationResult,
 };
-#[cfg(feature = "broken-modules")]
-pub use db_pool::{DbPool, DbPoolConfig, PoolMonitor};
 #[cfg(feature = "broken-modules")]
 pub use wallet::{
     CreateWalletRequest, ImportWalletRequest, InMemoryWalletStore, RestoreWalletRequest, Wallet,
