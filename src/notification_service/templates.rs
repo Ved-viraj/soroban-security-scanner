@@ -1,8 +1,8 @@
 //! Template management system for notifications
 
 use crate::notification_service::types::{
-    NotificationChannel, NotificationTemplate, TemplateContext, TemplateError, TemplateVariable,
-    VariableType,
+    NotificationChannel, NotificationTemplate, RenderedTemplate, TemplateContext, TemplateError,
+    TemplateInfo, TemplateVariable, VariableType,
 };
 use handlebars::{Handlebars, TemplateRenderError};
 use serde::{Deserialize, Serialize};
@@ -119,6 +119,110 @@ impl TemplateManager {
             body,
             template_id: template_id.to_string(),
         })
+    }
+
+    /// Render a template preview with the given context.
+    /// Returns a RenderedTemplate with subject, plain-text body, and HTML body (for email templates).
+    pub fn render_preview(
+        &self,
+        template_name: &str,
+        context: &TemplateContext,
+    ) -> Result<RenderedTemplate, TemplateError> {
+        let rendered = self.render_template(template_name, context)?;
+        let template = self
+            .templates
+            .get(template_name)
+            .ok_or_else(|| TemplateError::TemplateNotFound(template_name.to_string()))?;
+
+        // For email templates, generate an HTML version by wrapping the plain-text body
+        // in a basic HTML structure if the template supports Email channel.
+        let html_body = if template
+            .supported_channels
+            .contains(&NotificationChannel::Email)
+        {
+            Some(Self::plain_text_to_html(&rendered.subject, &rendered.body))
+        } else {
+            None
+        };
+
+        Ok(RenderedTemplate {
+            subject: rendered.subject.clone(),
+            plain_text_body: rendered.body.clone(),
+            html_body,
+            template_id: template_name.to_string(),
+            template_name: template.name.clone(),
+        })
+    }
+
+    /// List all templates with their metadata for the admin template listing endpoint.
+    pub fn list_template_info(&self) -> Vec<TemplateInfo> {
+        self.templates
+            .values()
+            .map(|t| TemplateInfo {
+                id: t.id.clone(),
+                name: t.name.clone(),
+                description: t.description.clone(),
+                supported_channels: t.supported_channels.clone(),
+                variables: t.variables.clone(),
+                version: t.version,
+                active: t.active,
+                created_at: t.created_at,
+                updated_at: t.updated_at,
+            })
+            .collect()
+    }
+
+    /// Convert plain text to a basic HTML email body.
+    /// Wraps the text in paragraphs and applies basic styling.
+    fn plain_text_to_html(subject: &Option<String>, body: &str) -> String {
+        let escaped_body = body
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+
+        let paragraphs: Vec<&str> = escaped_body
+            .split("\n\n")
+            .filter(|p| !p.is_empty())
+            .collect();
+
+        let body_html = if paragraphs.is_empty() {
+            format!("<p>{}</p>", escaped_body.replace('\n', "<br>"))
+        } else {
+            paragraphs
+                .iter()
+                .map(|p| format!("<p>{}</p>", p.replace('\n', "<br>")))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        let subject_line = subject
+            .as_ref()
+            .map(|s| format!("<h1>{}</h1>", s))
+            .unwrap_or_default();
+
+        format!(
+            r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Template Preview</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.6; }}
+    h1 {{ color: #1a56db; font-size: 20px; }}
+    p {{ margin: 0 0 12px 0; }}
+    .footer {{ margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; }}
+  </style>
+</head>
+<body>
+{}{}
+  <div class="footer">
+    <p>This is a preview of the template. Sent by Soroban Security Scanner.</p>
+  </div>
+</body>
+</html>"#,
+            subject_line, body_html
+        )
     }
 
     /// Delete a template

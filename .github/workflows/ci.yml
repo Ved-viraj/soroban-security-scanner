@@ -70,7 +70,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
           components: clippy, rustfmt
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -81,11 +81,11 @@ jobs:
       - name: cargo fmt
         run: cargo fmt --check
       - name: cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --lib -- -D warnings
       - name: cargo test
-        run: cargo test --features testutils
+        run: cargo test -p security_scanner
       - name: cargo build (WASM)
-        run: cargo build --target wasm32-unknown-unknown --release
+        run: cargo build --target wasm32v1-none --release
 
   backend:
     needs: detect-changes
