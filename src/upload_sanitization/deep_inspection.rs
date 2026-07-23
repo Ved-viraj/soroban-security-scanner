@@ -80,7 +80,11 @@ impl Default for SorobanContractInterface {
                 },
                 ExpectedFunction {
                     name: "transfer".to_string(),
-                    params: vec!["Address".to_string(), "Address".to_string(), "i128".to_string()],
+                    params: vec![
+                        "Address".to_string(),
+                        "Address".to_string(),
+                        "i128".to_string(),
+                    ],
                     results: vec![],
                     required: true,
                     description: "Transfer tokens from sender to recipient".to_string(),
@@ -94,7 +98,11 @@ impl Default for SorobanContractInterface {
                 },
                 ExpectedFunction {
                     name: "approve".to_string(),
-                    params: vec!["Address".to_string(), "Address".to_string(), "i128".to_string()],
+                    params: vec![
+                        "Address".to_string(),
+                        "Address".to_string(),
+                        "i128".to_string(),
+                    ],
                     results: vec![],
                     required: false,
                     description: "Approve a spender to spend tokens".to_string(),
@@ -202,16 +210,16 @@ impl SorobanContractInterface {
         match (wasm_type, interface_type) {
             (ValType::I32, "i32") => true,
             (ValType::I32, "u32") => true,
-            (ValType::I32, "Address") => true,  // Address is 32 bytes, passed as pointer (i32)
-            (ValType::I32, "Bytes") => true,     // Bytes passed as pointer (i32)
-            (ValType::I32, "String") => true,    // String passed as pointer (i32)
-            (ValType::I32, "Symbol") => true,    // Symbol passed as pointer (i32)
-            (ValType::I32, "bool") => true,      // bool passed as i32
+            (ValType::I32, "Address") => true, // Address is 32 bytes, passed as pointer (i32)
+            (ValType::I32, "Bytes") => true,   // Bytes passed as pointer (i32)
+            (ValType::I32, "String") => true,  // String passed as pointer (i32)
+            (ValType::I32, "Symbol") => true,  // Symbol passed as pointer (i32)
+            (ValType::I32, "bool") => true,    // bool passed as i32
             (ValType::I64, "i64") => true,
             (ValType::I64, "u64") => true,
-            (ValType::I64, "i128") => true,      // i128 is often 2 x i64 or i64-based
+            (ValType::I64, "i128") => true, // i128 is often 2 x i64 or i64-based
             (ValType::I64, "u128") => true,
-            (ValType::V128, "i128") => true,     // v128 can hold i128
+            (ValType::V128, "i128") => true, // v128 can hold i128
             (ValType::V128, "u128") => true,
             (ValType::F32, "f32") => true,
             (ValType::F64, "f64") => true,
@@ -253,8 +261,16 @@ pub fn validate_function_signatures(
             if type_idx < wasm.function_types.len() {
                 let ft = &wasm.function_types[type_idx];
                 Some(FunctionSignature {
-                    params: ft.params.iter().map(SorobanContractInterface::valtype_to_interface_type).collect(),
-                    results: ft.results.iter().map(SorobanContractInterface::valtype_to_interface_type).collect(),
+                    params: ft
+                        .params
+                        .iter()
+                        .map(SorobanContractInterface::valtype_to_interface_type)
+                        .collect(),
+                    results: ft
+                        .results
+                        .iter()
+                        .map(SorobanContractInterface::valtype_to_interface_type)
+                        .collect(),
                 })
             } else {
                 None
@@ -338,8 +354,14 @@ pub fn validate_function_signatures(
 
     // Count statistics
     let total_checked = function_results.len();
-    let total_mismatches = function_results.iter().filter(|r| !r.matches && r.status != SignatureStatus::Unknown).count();
-    let total_unknown = function_results.iter().filter(|r| r.status == SignatureStatus::Unknown).count();
+    let total_mismatches = function_results
+        .iter()
+        .filter(|r| !r.matches && r.status != SignatureStatus::Unknown)
+        .count();
+    let total_unknown = function_results
+        .iter()
+        .filter(|r| r.status == SignatureStatus::Unknown)
+        .count();
     let valid = total_mismatches == 0;
 
     // If strict mode is enabled, also require no unknown functions
@@ -393,7 +415,9 @@ fn check_function_match(
 
     // Verify parameter types
     let mut param_mismatches = Vec::new();
-    for (i, (actual_type_str, expected_type)) in actual.params.iter().zip(expected.params.iter()).enumerate() {
+    for (i, (actual_type_str, expected_type)) in
+        actual.params.iter().zip(expected.params.iter()).enumerate()
+    {
         // Parse the string back to ValType for matching
         let wasm_val_type = match actual_type_str.as_str() {
             "i32" => ValType::I32,
@@ -525,9 +549,15 @@ pub enum SignatureStatus {
     /// Function not found in known interface
     Unknown,
     /// Parameter type mismatch
-    ParamMismatch { expected: Vec<String>, actual: Vec<String> },
+    ParamMismatch {
+        expected: Vec<String>,
+        actual: Vec<String>,
+    },
     /// Return type mismatch
-    ResultMismatch { expected: Vec<String>, actual: Vec<String> },
+    ResultMismatch {
+        expected: Vec<String>,
+        actual: Vec<String>,
+    },
     /// Parameter count mismatch
     ParamCountMismatch { expected: usize, actual: usize },
     /// Result count mismatch
@@ -539,7 +569,11 @@ mod tests {
     use super::*;
 
     /// Create a WASM module with a specific function signature for testing
-    fn create_test_wasm_with_function(func_name: &str, param_types: &[u8], result_types: &[u8]) -> Vec<u8> {
+    fn create_test_wasm_with_function(
+        func_name: &str,
+        param_types: &[u8],
+        result_types: &[u8],
+    ) -> Vec<u8> {
         let mut wasm = vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00];
 
         // Type section
@@ -617,13 +651,16 @@ mod tests {
         let wasm_bytes = create_test_wasm_with_function(
             "transfer",
             &[0x7F, 0x7F, 0x7F], // i32, i32, i32 (Address, Address, i128 as pointers)
-            &[],                   // no results
+            &[],                 // no results
         );
         let wasm = parse_wasm_module(&wasm_bytes).unwrap();
         let interface = SorobanContractInterface::default();
 
         let result = validate_function_signatures(&wasm, &interface);
-        assert!(result.valid, "transfer function should have valid signature");
+        assert!(
+            result.valid,
+            "transfer function should have valid signature"
+        );
     }
 
     #[test]
@@ -632,7 +669,7 @@ mod tests {
         let wasm_bytes = create_test_wasm_with_function(
             "transfer",
             &[0x7F, 0x7E], // i32, i64 (wrong: should be 3 params)
-            &[],             // no results
+            &[],           // no results
         );
         let wasm = parse_wasm_module(&wasm_bytes).unwrap();
         let interface = SorobanContractInterface::default();
@@ -640,10 +677,10 @@ mod tests {
         let result = validate_function_signatures(&wasm, &interface);
         // Should detect param count mismatch
         assert!(
-            result.function_results.iter().any(|r| matches!(
-                r.status,
-                SignatureStatus::ParamCountMismatch { .. }
-            )),
+            result
+                .function_results
+                .iter()
+                .any(|r| matches!(r.status, SignatureStatus::ParamCountMismatch { .. })),
             "Should detect param count mismatch for transfer"
         );
     }
@@ -662,7 +699,10 @@ mod tests {
         let result = validate_function_signatures(&wasm, &interface);
         // Should warn about missing required functions
         assert!(
-            result.warnings.iter().any(|w| w.contains("Required function")),
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("Required function")),
             "Should warn about missing required functions"
         );
     }
@@ -679,7 +719,10 @@ mod tests {
 
         let result = validate_function_signatures(&wasm, &interface);
         assert!(
-            result.warnings.iter().any(|w| w.contains("not part of the known")),
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("not part of the known")),
             "Should warn about unknown functions"
         );
     }

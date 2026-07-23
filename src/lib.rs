@@ -211,7 +211,9 @@ pub use time_travel_debugger::{
     TimeTravelDebugger, UpgradeSimulationResult,
 };
 #[cfg(feature = "broken-modules")]
-pub use upload_sanitization::{SanitizationPipeline, SignatureValidationResult, SorobanContractInterface};
+pub use upload_sanitization::{
+    SanitizationPipeline, SignatureValidationResult, SorobanContractInterface,
+};
 #[cfg(feature = "broken-modules")]
 pub use wallet::{
     CreateWalletRequest, ImportWalletRequest, InMemoryWalletStore, RestoreWalletRequest, Wallet,

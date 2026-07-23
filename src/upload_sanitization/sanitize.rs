@@ -69,7 +69,10 @@ impl SanitizationPipeline {
     }
 
     /// Create a new sanitization pipeline with a custom SEI interface file
-    pub fn new_with_interface(strict_signature_check: bool, interface_path: &str) -> anyhow::Result<Self> {
+    pub fn new_with_interface(
+        strict_signature_check: bool,
+        interface_path: &str,
+    ) -> anyhow::Result<Self> {
         let mut interface = if std::path::Path::new(interface_path).exists() {
             SorobanContractInterface::load_from_file(interface_path)?
         } else {
@@ -102,43 +105,46 @@ impl SanitizationPipeline {
         };
         if !matches!(content_type_check, ContentTypeResult::Valid) {
             passed = false;
-            issues.push(format!("Content type check failed: {:?}", content_type_check));
+            issues.push(format!(
+                "Content type check failed: {:?}",
+                content_type_check
+            ));
         }
 
         // Stage 3: Malware scan
         let malware_scan = scan_for_malware(bytes);
-        let has_malware = malware_scan.iter().any(|r| {
-            matches!(r, MalwareScanResult::MalwareDetected { .. })
-        });
+        let has_malware = malware_scan
+            .iter()
+            .any(|r| matches!(r, MalwareScanResult::MalwareDetected { .. }));
         if has_malware {
             passed = false;
             issues.push("Malware detected in binary".to_string());
         }
 
-    // Stage 4: Deep inspection (only if basic checks pass or partial inspection desired)
-    let strict_check = self.strict_signature_check();
-    let deep_inspection = if matches!(magic_check, MagicVerificationResult::Valid) {
-        match parse_wasm_module(bytes) {
-            Ok(wasm) => {
-                let sig_result = validate_function_signatures(&wasm, &self.sei_interface);
-                if !sig_result.valid && strict_check {
-                    passed = false;
-                }
-                if !sig_result.warnings.is_empty() {
-                    for warning in &sig_result.warnings {
-                        issues.push(format!("Signature validation: {}", warning));
+        // Stage 4: Deep inspection (only if basic checks pass or partial inspection desired)
+        let strict_check = self.strict_signature_check();
+        let deep_inspection = if matches!(magic_check, MagicVerificationResult::Valid) {
+            match parse_wasm_module(bytes) {
+                Ok(wasm) => {
+                    let sig_result = validate_function_signatures(&wasm, &self.sei_interface);
+                    if !sig_result.valid && strict_check {
+                        passed = false;
                     }
+                    if !sig_result.warnings.is_empty() {
+                        for warning in &sig_result.warnings {
+                            issues.push(format!("Signature validation: {}", warning));
+                        }
+                    }
+                    Some(sig_result)
                 }
-                Some(sig_result)
-            }
-            Err(e) => {
-                if strict_check {
-                    passed = false;
+                Err(e) => {
+                    if strict_check {
+                        passed = false;
+                    }
+                    issues.push(format!("WASM parsing failed: {}", e));
+                    None
                 }
-                issues.push(format!("WASM parsing failed: {}", e));
-                None
             }
-        }
         } else {
             None
         };

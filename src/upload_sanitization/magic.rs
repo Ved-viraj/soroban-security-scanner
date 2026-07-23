@@ -51,10 +51,12 @@ pub fn verify_magic(bytes: &[u8]) -> MagicVerificationResult {
 
     let version: u32 = u32::from_le_bytes(match bytes[4..8].try_into() {
         Ok(v) => v,
-        Err(_) => return MagicVerificationResult::UnsupportedVersion {
-            expected: WASM_VERSION,
-            found: 0,
-        },
+        Err(_) => {
+            return MagicVerificationResult::UnsupportedVersion {
+                expected: WASM_VERSION,
+                found: 0,
+            }
+        }
     });
 
     if version != WASM_VERSION {
@@ -81,14 +83,20 @@ mod tests {
     fn test_invalid_magic() {
         let invalid = [0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00];
         let result = verify_magic(&invalid);
-        assert!(matches!(result, MagicVerificationResult::InvalidMagic { .. }));
+        assert!(matches!(
+            result,
+            MagicVerificationResult::InvalidMagic { .. }
+        ));
     }
 
     #[test]
     fn test_unsupported_version() {
         let unsupported = [0x00, 0x61, 0x73, 0x6D, 0x02, 0x00, 0x00, 0x00];
         let result = verify_magic(&unsupported);
-        assert!(matches!(result, MagicVerificationResult::UnsupportedVersion { .. }));
+        assert!(matches!(
+            result,
+            MagicVerificationResult::UnsupportedVersion { .. }
+        ));
     }
 
     #[test]

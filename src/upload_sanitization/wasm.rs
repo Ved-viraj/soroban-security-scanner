@@ -152,9 +152,7 @@ pub fn parse_wasm_module(bytes: &[u8]) -> Result<WasmModule, WasmParseError> {
         if pos + 4 > bytes.len() {
             break;
         }
-        let section_size = u32::from_le_bytes(
-            bytes[pos..pos + 4].try_into().unwrap(),
-        ) as usize;
+        let section_size = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap()) as usize;
         pos += 4;
 
         let section_start = pos;
@@ -277,8 +275,7 @@ pub fn parse_wasm_module(bytes: &[u8]) -> Result<WasmModule, WasmParseError> {
                             let export_kind = bytes[sec_pos];
                             sec_pos += 1;
 
-                            let (consumed2, index) =
-                                leb128_u32(&bytes[sec_pos..section_end]);
+                            let (consumed2, index) = leb128_u32(&bytes[sec_pos..section_end]);
                             sec_pos += consumed2;
 
                             let kind = match export_kind {
@@ -289,11 +286,7 @@ pub fn parse_wasm_module(bytes: &[u8]) -> Result<WasmModule, WasmParseError> {
                                 _ => ExportKind::Func,
                             };
 
-                            module.exports.push(ExportEntry {
-                                name,
-                                kind,
-                                index,
-                            });
+                            module.exports.push(ExportEntry { name, kind, index });
                         }
                     }
                 }
@@ -330,15 +323,14 @@ pub fn parse_wasm_module(bytes: &[u8]) -> Result<WasmModule, WasmParseError> {
     }
 
     // Build function types list from the map
-    let max_idx = type_section_indices
-        .keys()
-        .max()
-        .copied()
-        .unwrap_or(0) as usize;
-    module.function_types = vec![FuncType {
-        params: vec![],
-        results: vec![],
-    }; max_idx + 1];
+    let max_idx = type_section_indices.keys().max().copied().unwrap_or(0) as usize;
+    module.function_types = vec![
+        FuncType {
+            params: vec![],
+            results: vec![],
+        };
+        max_idx + 1
+    ];
     for (idx, ft) in type_section_indices {
         module.function_types[idx as usize] = ft;
     }

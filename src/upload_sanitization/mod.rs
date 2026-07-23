@@ -14,5 +14,5 @@ pub mod malware;
 pub mod sanitize;
 pub mod wasm;
 
+pub use self::deep_inspection::{SignatureValidationResult, SorobanContractInterface};
 pub use self::sanitize::SanitizationPipeline;
-pub use self::deep_inspection::{SorobanContractInterface, SignatureValidationResult};

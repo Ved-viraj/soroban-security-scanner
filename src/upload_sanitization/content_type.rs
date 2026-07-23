@@ -20,10 +20,7 @@ pub enum ContentTypeResult {
 const VALID_EXTENSIONS: &[&str] = &["wasm", "wat"];
 
 /// Valid MIME types for WASM binaries
-const VALID_MIME_TYPES: &[&str] = &[
-    "application/wasm",
-    "application/octet-stream",
-];
+const VALID_MIME_TYPES: &[&str] = &["application/wasm", "application/octet-stream"];
 
 /// Validate that the file extension is valid for a WASM binary
 pub fn validate_extension(filename: &str) -> ContentTypeResult {
@@ -107,12 +104,18 @@ mod tests {
     #[test]
     fn test_mime_content_mismatch() {
         let result = validate_content_type("contract.wasm", &[0x00, 0x00, 0x00, 0x00]);
-        assert!(matches!(result, ContentTypeResult::MimeContentMismatch { .. }));
+        assert!(matches!(
+            result,
+            ContentTypeResult::MimeContentMismatch { .. }
+        ));
     }
 
     #[test]
     fn test_valid_content_type() {
-        let result = validate_content_type("contract.wasm", &[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]);
+        let result = validate_content_type(
+            "contract.wasm",
+            &[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00],
+        );
         assert_eq!(result, ContentTypeResult::Valid);
     }
 }
