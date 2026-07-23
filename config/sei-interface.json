@@ -1,0 +1,93 @@
+{
+  "version": "1.0.0",
+  "functions": [
+    {
+      "name": "init",
+      "params": ["Admin"],
+      "results": [],
+      "required": true,
+      "description": "Initialize the contract with an admin address"
+    },
+    {
+      "name": "transfer",
+      "params": ["Address", "Address", "i128"],
+      "results": [],
+      "required": true,
+      "description": "Transfer tokens from sender to recipient"
+    },
+    {
+      "name": "allowance",
+      "params": ["Address", "Address"],
+      "results": ["i128"],
+      "required": false,
+      "description": "Get the allowance for a spender"
+    },
+    {
+      "name": "approve",
+      "params": ["Address", "Address", "i128"],
+      "results": [],
+      "required": false,
+      "description": "Approve a spender to spend tokens"
+    },
+    {
+      "name": "balance",
+      "params": ["Address"],
+      "results": ["i128"],
+      "required": true,
+      "description": "Get the balance of an account"
+    },
+    {
+      "name": "mint",
+      "params": ["Address", "i128"],
+      "results": [],
+      "required": false,
+      "description": "Mint new tokens (admin only)"
+    },
+    {
+      "name": "burn",
+      "params": ["Address", "i128"],
+      "results": [],
+      "required": false,
+      "description": "Burn tokens (admin only)"
+    },
+    {
+      "name": "upgrade",
+      "params": ["Bytes"],
+      "results": [],
+      "required": false,
+      "description": "Upgrade contract WASM code"
+    },
+    {
+      "name": "name",
+      "params": [],
+      "results": ["String"],
+      "required": false,
+      "description": "Get the token name"
+    },
+    {
+      "name": "symbol",
+      "params": [],
+      "results": ["String"],
+      "required": false,
+      "description": "Get the token symbol"
+    },
+    {
+      "name": "decimals",
+      "params": [],
+      "results": ["u32"],
+      "required": false,
+      "description": "Get the token decimals"
+    },
+    {
+      "name": "total_supply",
+      "params": [],
+      "results": ["i128"],
+      "required": false,
+      "description": "Get the total supply"
+    }
+  ],
+  "config": {
+    "strict": false,
+    "warn_unknown": true
+  }
+}
