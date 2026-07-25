@@ -1,11 +1,352 @@
 use axum::{
-    extract::Request,
+    extract::{Query, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     middleware::Next,
     response::Response,
+    routing::{get, post},
+    Json, Router,
 };
-use std::collections::HashMap;
+use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, RwLock},
+};
 use thiserror::Error;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CspViolation {
+    pub directive: String,
+    pub blocked_uri: String,
+    pub document_uri: String,
+    pub source_file: Option<String>,
+    pub line_number: Option<i32>,
+    pub violated_at: DateTime<Utc>,
+    pub user_agent: Option<String>,
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct CspViolationFilter {
+    pub directive: Option<String>,
+    pub blocked_uri: Option<String>,
+    pub start_date: Option<DateTime<Utc>>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub page: Option<usize>,
+    pub per_page: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CspViolationListResponse {
+    pub data: Vec<CspViolation>,
+    pub page: usize,
+    pub per_page: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CspDashboardSummary {
+    pub violations_by_directive: Vec<DirectiveBreakdown>,
+    pub top_blocked_uris: Vec<BlockedUriBreakdown>,
+    pub violations_over_time: Vec<TimeSeriesPoint>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DirectiveBreakdown {
+    pub directive: String,
+    pub count: usize,
+    pub trend: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BlockedUriBreakdown {
+    pub blocked_uri: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TimeSeriesPoint {
+    pub date: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct CspPolicyGraduationRecommendation {
+    pub safe_to_enforce: bool,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CspPolicyGraduationCheck {
+    violations: Vec<CspViolation>,
+    window_days: i64,
+}
+
+impl CspPolicyGraduationCheck {
+    pub fn new(violations: Vec<CspViolation>, window_days: i64) -> Self {
+        Self {
+            violations,
+            window_days,
+        }
+    }
+
+    pub fn evaluate(&self, now: DateTime<Utc>) -> CspPolicyGraduationRecommendation {
+        let cutoff = now - Duration::days(self.window_days);
+        let recent = self
+            .violations
+            .iter()
+            .filter(|violation| violation.violated_at >= cutoff)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let directive_counts = recent
+            .iter()
+            .fold(HashMap::new(), |mut map, violation| {
+                *map.entry(violation.directive.clone()).or_insert(0usize) += 1;
+                map
+            });
+
+        let safe_to_enforce = recent.is_empty() || (recent.len() <= 2 && directive_counts.len() <= 1);
+        let reason = if safe_to_enforce {
+            "Recent CSP violations are limited and stable; the policy appears ready for enforcement.".to_string()
+        } else {
+            format!(
+                "CSP violations detected across {} directives over the last {} days; keep report-only until the underlying issues are resolved.",
+                directive_counts.len(),
+                self.window_days
+            )
+        };
+
+        CspPolicyGraduationRecommendation {
+            safe_to_enforce,
+            reason,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LogAlert {
+    pub directive: String,
+    pub severity: String,
+    pub message: String,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct LogAlerter;
+
+impl LogAlerter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn analyze_alerts(&self, current: &[CspViolation], previous: &[CspViolation], _now: DateTime<Utc>) -> Vec<LogAlert> {
+        let previous_directives: HashSet<_> = previous.iter().map(|violation| violation.directive.clone()).collect();
+        let current_directives: HashSet<_> = current.iter().map(|violation| violation.directive.clone()).collect();
+        let mut alerts = Vec::new();
+
+        if let Some(new_directive) = current_directives.difference(&previous_directives).next() {
+            alerts.push(LogAlert {
+                directive: new_directive.clone(),
+                severity: "warning".to_string(),
+                message: format!("New CSP directive {} appears in the latest violations.", new_directive),
+            });
+        }
+
+        if current.len() as i64 > previous.len() as i64 + 1 {
+            alerts.push(LogAlert {
+                directive: "overall".to_string(),
+                severity: "warning".to_string(),
+                message: "CSP violations spiked sharply compared with the previous window.".to_string(),
+            });
+        }
+
+        alerts
+    }
+}
+
+#[async_trait::async_trait]
+pub trait CspViolationStore: Send + Sync {
+    async fn record_csp_violation(&self, violation: CspViolation) -> anyhow::Result<()>;
+    async fn query_csp_violations(&self, filter: &CspViolationFilter) -> anyhow::Result<Vec<CspViolation>>;
+    async fn get_csp_dashboard(&self, filter: Option<CspViolationFilter>) -> anyhow::Result<CspDashboardSummary>;
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct InMemoryCspViolationStore {
+    violations: Arc<RwLock<Vec<CspViolation>>>,
+}
+
+impl InMemoryCspViolationStore {
+    pub async fn record_violation(&self, violation: CspViolation) -> anyhow::Result<()> {
+        self.record_csp_violation(violation).await
+    }
+
+    pub async fn list_violations(&self, filter: &CspViolationFilter) -> anyhow::Result<Vec<CspViolation>> {
+        self.query_csp_violations(filter).await
+    }
+
+    pub async fn get_dashboard_aggregations(&self, filter: Option<CspViolationFilter>) -> anyhow::Result<CspDashboardSummary> {
+        self.get_csp_dashboard(filter).await
+    }
+}
+
+#[async_trait::async_trait]
+impl CspViolationStore for InMemoryCspViolationStore {
+    async fn record_csp_violation(&self, violation: CspViolation) -> anyhow::Result<()> {
+        let mut violations = self
+            .violations
+            .write()
+            .map_err(|_| anyhow::anyhow!("Unable to write CSP violation store"))?;
+        violations.push(violation);
+        Ok(())
+    }
+
+    async fn query_csp_violations(&self, filter: &CspViolationFilter) -> anyhow::Result<Vec<CspViolation>> {
+        let violations = self
+            .violations
+            .read()
+            .map_err(|_| anyhow::anyhow!("Unable to read CSP violation store"))?;
+        let mut filtered: Vec<CspViolation> = violations
+            .iter()
+            .filter(|violation| {
+                if let Some(directive) = &filter.directive {
+                    if !violation.directive.eq_ignore_ascii_case(directive) {
+                        return false;
+                    }
+                }
+                if let Some(blocked_uri) = &filter.blocked_uri {
+                    if !violation.blocked_uri.contains(blocked_uri) {
+                        return false;
+                    }
+                }
+                if let Some(start_date) = filter.start_date {
+                    if violation.violated_at < start_date {
+                        return false;
+                    }
+                }
+                if let Some(end_date) = filter.end_date {
+                    if violation.violated_at > end_date {
+                        return false;
+                    }
+                }
+                true
+            })
+            .cloned()
+            .collect();
+
+        filtered.sort_by(|left, right| right.violated_at.cmp(&left.violated_at));
+
+        let page = filter.page.unwrap_or(1).max(1);
+        let per_page = filter.per_page.unwrap_or(20).max(1);
+        let start = (page - 1) * per_page;
+        let end = start + per_page;
+        Ok(filtered.into_iter().skip(start).take(end.saturating_sub(start)).collect())
+    }
+
+    async fn get_csp_dashboard(&self, filter: Option<CspViolationFilter>) -> anyhow::Result<CspDashboardSummary> {
+        let filter = filter.unwrap_or_default();
+        let violations = self.query_csp_violations(&filter).await?;
+        let mut directives: HashMap<String, usize> = HashMap::new();
+        let mut blocked_uris: HashMap<String, usize> = HashMap::new();
+        let mut time_series: HashMap<String, usize> = HashMap::new();
+
+        let now = Utc::now();
+        for violation in &violations {
+            *directives.entry(violation.directive.clone()).or_insert(0) += 1;
+            *blocked_uris.entry(violation.blocked_uri.clone()).or_insert(0) += 1;
+            let bucket = violation.violated_at.date_naive().format("%Y-%m-%d").to_string();
+            *time_series.entry(bucket).or_insert(0) += 1;
+            let _ = now;
+        }
+
+        let mut violations_by_directive = directives
+            .into_iter()
+            .map(|(directive, count)| {
+                let recent = violations.iter().filter(|item| item.directive == directive).count();
+                let trend = if recent > 1 { "up".to_string() } else { "flat".to_string() };
+                DirectiveBreakdown { directive, count, trend }
+            })
+            .collect::<Vec<_>>();
+        violations_by_directive.sort_by(|left, right| right.count.cmp(&left.count));
+
+        let mut top_blocked_uris = blocked_uris
+            .into_iter()
+            .map(|(blocked_uri, count)| BlockedUriBreakdown { blocked_uri, count })
+            .collect::<Vec<_>>();
+        top_blocked_uris.sort_by(|left, right| right.count.cmp(&left.count));
+
+        let mut violations_over_time = time_series
+            .into_iter()
+            .map(|(date, count)| TimeSeriesPoint { date, count })
+            .collect::<Vec<_>>();
+        violations_over_time.sort_by(|left, right| left.date.cmp(&right.date));
+
+        Ok(CspDashboardSummary {
+            violations_by_directive,
+            top_blocked_uris,
+            violations_over_time,
+        })
+    }
+}
+
+pub fn build_csp_routes<S>(store: Arc<S>) -> Router
+where
+    S: CspViolationStore + Send + Sync + 'static,
+{
+    Router::new()
+        .route(
+            "/api/v1/security/csp-violations",
+            get(list_csp_violations::<S>).post(create_csp_violation::<S>),
+        )
+        .route("/api/v1/security/csp-dashboard", get(get_csp_dashboard::<S>))
+        .with_state(store)
+}
+
+async fn list_csp_violations<S>(
+    State(store): State<Arc<S>>,
+    query: Option<Query<CspViolationFilter>>,
+) -> Result<Json<CspViolationListResponse>, StatusCode>
+where
+    S: CspViolationStore + Send + Sync + 'static,
+{
+    let filter = query.map(|Query(filter)| filter).unwrap_or_default();
+    let data = store
+        .query_csp_violations(&filter)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(CspViolationListResponse {
+        data,
+        page: filter.page.unwrap_or(1),
+        per_page: filter.per_page.unwrap_or(20),
+    }))
+}
+
+async fn create_csp_violation<S>(
+    State(store): State<Arc<S>>,
+    Json(violation): Json<CspViolation>,
+) -> Result<(StatusCode, Json<serde_json::Value>), StatusCode>
+where
+    S: CspViolationStore + Send + Sync + 'static,
+{
+    store
+        .record_csp_violation(violation)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok((StatusCode::CREATED, Json(serde_json::json!({ "ok": true }))))
+}
+
+async fn get_csp_dashboard<S>(
+    State(store): State<Arc<S>>,
+    query: Option<Query<CspViolationFilter>>,
+) -> Result<Json<CspDashboardSummary>, StatusCode>
+where
+    S: CspViolationStore + Send + Sync + 'static,
+{
+    let filter = query.map(|Query(filter)| filter).unwrap_or_default();
+    let dashboard = store
+        .get_csp_dashboard(Some(filter))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(dashboard))
+}
 
 #[derive(Debug, Error)]
 pub enum SecurityHeaderError {
@@ -441,7 +782,148 @@ pub fn create_security_headers_middleware(config: SecurityHeadersConfig) -> impl
 mod tests {
     use super::*;
     use axum::{body::Body, http::Method, routing::get, Router};
+    use chrono::{Duration, Utc};
+    use std::sync::Arc;
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn test_csp_violation_store_records_and_dashboard_aggregations() {
+        let store = InMemoryCspViolationStore::default();
+        let now = Utc::now();
+
+        store
+            .record_violation(CspViolation {
+                directive: "script-src".to_string(),
+                blocked_uri: "https://cdn.example.net/app.js".to_string(),
+                document_uri: "https://app.example.com".to_string(),
+                source_file: Some("/src/app.tsx".to_string()),
+                line_number: Some(27),
+                violated_at: now - Duration::days(1),
+                user_agent: Some("Mozilla/5.0".to_string()),
+            })
+            .await
+            .unwrap();
+
+        store
+            .record_violation(CspViolation {
+                directive: "script-src".to_string(),
+                blocked_uri: "https://cdn.example.net/app.js".to_string(),
+                document_uri: "https://app.example.com/checkout".to_string(),
+                source_file: Some("/src/checkout.tsx".to_string()),
+                line_number: Some(44),
+                violated_at: now - Duration::hours(3),
+                user_agent: Some("Mozilla/5.0".to_string()),
+            })
+            .await
+            .unwrap();
+
+        store
+            .record_violation(CspViolation {
+                directive: "img-src".to_string(),
+                blocked_uri: "https://images.example.com/logo.png".to_string(),
+                document_uri: "https://app.example.com".to_string(),
+                source_file: Some("/src/header.tsx".to_string()),
+                line_number: Some(15),
+                violated_at: now - Duration::hours(1),
+                user_agent: Some("Mozilla/5.0".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let violations = store.list_violations(&CspViolationFilter::default()).await.unwrap();
+        assert_eq!(violations.len(), 3);
+
+        let dashboard = store.get_dashboard_aggregations(None).await.unwrap();
+        assert!(dashboard.violations_by_directive.iter().any(|entry| entry.directive == "script-src" && entry.count == 2));
+        assert!(dashboard.top_blocked_uris.iter().any(|entry| entry.blocked_uri == "https://cdn.example.net/app.js"));
+        assert!(!dashboard.violations_over_time.is_empty());
+    }
+
+    #[test]
+    fn test_csp_policy_graduation_check_recommends_caution_for_spiky_policy() {
+        let now = Utc::now();
+        let violations = vec![
+            CspViolation {
+                directive: "script-src".to_string(),
+                blocked_uri: "https://cdn.example.net/app.js".to_string(),
+                document_uri: "https://app.example.com".to_string(),
+                source_file: Some("/src/app.tsx".to_string()),
+                line_number: Some(27),
+                violated_at: now - Duration::days(1),
+                user_agent: Some("Mozilla/5.0".to_string()),
+            },
+            CspViolation {
+                directive: "script-src".to_string(),
+                blocked_uri: "https://cdn.example.net/app.js".to_string(),
+                document_uri: "https://app.example.com/checkout".to_string(),
+                source_file: Some("/src/checkout.tsx".to_string()),
+                line_number: Some(44),
+                violated_at: now - Duration::hours(3),
+                user_agent: Some("Mozilla/5.0".to_string()),
+            },
+            CspViolation {
+                directive: "style-src".to_string(),
+                blocked_uri: "https://fonts.example.com/font.css".to_string(),
+                document_uri: "https://app.example.com".to_string(),
+                source_file: Some("/src/styles.css".to_string()),
+                line_number: Some(4),
+                violated_at: now - Duration::hours(2),
+                user_agent: Some("Mozilla/5.0".to_string()),
+            },
+        ];
+
+        let recommendation = CspPolicyGraduationCheck::new(violations, 30).evaluate(now);
+        assert!(!recommendation.safe_to_enforce);
+        assert!(recommendation.reason.contains("CSP violations"));
+    }
+
+    #[tokio::test]
+    async fn test_csp_routes_accept_violation_reports() {
+        let store = Arc::new(InMemoryCspViolationStore::default());
+        let app = build_csp_routes(store.clone());
+
+        let request = axum::http::Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/security/csp-violations")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"directive":"script-src","blocked_uri":"https://cdn.example.net/app.js","document_uri":"https://app.example.com","source_file":"/src/app.tsx","line_number":27,"violated_at":"2026-07-25T10:00:00Z","user_agent":"Mozilla/5.0"}"#))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        let violations = store.list_violations(&CspViolationFilter::default()).await.unwrap();
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn test_log_alerter_emits_spike_alerts() {
+        let now = Utc::now();
+        let previous = vec![CspViolation {
+            directive: "img-src".to_string(),
+            blocked_uri: "https://images.example.com/logo.png".to_string(),
+            document_uri: "https://app.example.com".to_string(),
+            source_file: Some("/src/header.tsx".to_string()),
+            line_number: Some(15),
+            violated_at: now - Duration::days(10),
+            user_agent: Some("Mozilla/5.0".to_string()),
+        }];
+        let current = vec![
+            previous[0].clone(),
+            CspViolation {
+                directive: "script-src".to_string(),
+                blocked_uri: "https://cdn.example.net/app.js".to_string(),
+                document_uri: "https://app.example.com".to_string(),
+                source_file: Some("/src/app.tsx".to_string()),
+                line_number: Some(27),
+                violated_at: now - Duration::days(1),
+                user_agent: Some("Mozilla/5.0".to_string()),
+            },
+        ];
+
+        let alerts = LogAlerter::new().analyze_alerts(&current, &previous, now);
+        assert!(alerts.iter().any(|alert| alert.severity == "warning"));
+    }
 
     #[tokio::test]
     async fn test_default_security_headers() {
