@@ -10,7 +10,6 @@
 //! the cross-contract call graph to depth K and exhaustively test all paths.
 
 use crate::protocol_analysis::manifest::{Expression, InvariantSpec, ProtocolManifest};
-use std::collections::{HashMap, HashSet};
 
 /// The result of verifying a single invariant.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,16 +51,17 @@ impl StaticAnalyzer {
     }
 
     /// Verify a single invariant using static analysis.
-    fn verify_invariant(invariant: &InvariantSpec, manifest: &ProtocolManifest) -> StaticVerificationResult {
+    fn verify_invariant(
+        invariant: &InvariantSpec,
+        manifest: &ProtocolManifest,
+    ) -> StaticVerificationResult {
         let start = std::time::Instant::now();
         let invariant_name = invariant.name.clone();
 
         // Determine the verification strategy based on expression complexity
         let (status, depth) = match &invariant.expression {
             // Simple equalities can often be verified structurally
-            Expression::Eq { left, right } => {
-                Self::verify_equality(left, right, manifest, 0)
-            }
+            Expression::Eq { left, right } => Self::verify_equality(left, right, manifest, 0),
             // Inequalities for safety properties
             Expression::Gte { left, right } | Expression::Lte { left, right } => {
                 Self::verify_inequality(left, right, manifest, 0)
@@ -71,16 +71,18 @@ impl StaticAnalyzer {
                 Self::verify_temporal(invariant, manifest)
             }
             // ForAll quantifiers
-            Expression::ForAll { .. } => {
-                (VerificationStatus::Unknown {
+            Expression::ForAll { .. } => (
+                VerificationStatus::Unknown {
                     reason: "ForAll requires bounded model checking".to_string(),
-                }, 0)
-            }
-            _ => {
-                (VerificationStatus::Unknown {
+                },
+                0,
+            ),
+            _ => (
+                VerificationStatus::Unknown {
                     reason: "Unsupported expression type for static verification".to_string(),
-                }, 0)
-            }
+                },
+                0,
+            ),
         };
 
         let elapsed = start.elapsed().as_millis() as u64;
@@ -107,15 +109,15 @@ impl StaticAnalyzer {
 
         // For structural equality: if both sides read the same key, trivially true
         if left_refs.len() == 1 && right_refs.len() == 1 && left_refs[0] == right_refs[0] {
-            return (
-                VerificationStatus::Verified,
-                depth + 1,
-            );
+            return (VerificationStatus::Verified, depth + 1);
         }
 
         // For constant product: check if the expression matches known pattern
         if let (
-            Expression::Mul { left: mul_left, right: mul_right },
+            Expression::Mul {
+                left: mul_left,
+                right: mul_right,
+            },
             Expression::Storage { key: k_key, .. },
         ) = (left, right)
         {
@@ -124,11 +126,11 @@ impl StaticAnalyzer {
                 Expression::Storage { key: ry_key, .. },
             ) = (mul_left.as_ref(), mul_right.as_ref())
             {
-                if k_key.as_str() == "k" && rx_key.as_str().contains("reserve") && ry_key.as_str().contains("reserve") {
-                    return (
-                        VerificationStatus::Verified,
-                        depth + 2,
-                    );
+                if k_key.as_str() == "k"
+                    && rx_key.as_str().contains("reserve")
+                    && ry_key.as_str().contains("reserve")
+                {
+                    return (VerificationStatus::Verified, depth + 2);
                 }
             }
         }
@@ -156,10 +158,7 @@ impl StaticAnalyzer {
         if left_refs.iter().any(|r| r.contains("total_deposits"))
             && right_refs.iter().any(|r| r.contains("total_loans"))
         {
-            return (
-                VerificationStatus::Verified,
-                depth + 1,
-            );
+            return (VerificationStatus::Verified, depth + 1);
         }
 
         (
@@ -171,12 +170,16 @@ impl StaticAnalyzer {
     }
 
     /// Verify a temporal invariant (before/after).
-    fn verify_temporal(invariant: &InvariantSpec, _manifest: &ProtocolManifest) -> (VerificationStatus, usize) {
+    fn verify_temporal(
+        _invariant: &InvariantSpec,
+        _manifest: &ProtocolManifest,
+    ) -> (VerificationStatus, usize) {
         // Temporal invariants (before/after) require bounded model checking
         // or dynamic simulation — we mark them for simulation
         (
             VerificationStatus::Unknown {
-                reason: "Temporal invariant requires bounded model checking or dynamic simulation".to_string(),
+                reason: "Temporal invariant requires bounded model checking or dynamic simulation"
+                    .to_string(),
             },
             0,
         )
@@ -222,8 +225,7 @@ impl StaticAnalyzer {
                 Self::get_storage_refs_inner(left, refs);
                 Self::get_storage_refs_inner(right, refs);
             }
-            Expression::Before { expr: inner, .. }
-            | Expression::After { expr: inner, .. } => {
+            Expression::Before { expr: inner, .. } | Expression::After { expr: inner, .. } => {
                 Self::get_storage_refs_inner(inner, refs);
             }
             Expression::Sum(items) => {
@@ -236,7 +238,10 @@ impl StaticAnalyzer {
     }
 
     /// Extract contract dependencies for an invariant.
-    fn extract_contract_dependencies(invariant: &InvariantSpec, _manifest: &ProtocolManifest) -> Vec<String> {
+    fn extract_contract_dependencies(
+        invariant: &InvariantSpec,
+        _manifest: &ProtocolManifest,
+    ) -> Vec<String> {
         let mut deps = Vec::new();
         Self::collect_contract_names(&invariant.expression, &mut deps);
         deps.sort();
@@ -275,8 +280,7 @@ impl StaticAnalyzer {
                 Self::collect_contract_names(left, names);
                 Self::collect_contract_names(right, names);
             }
-            Expression::Before { expr: inner, .. }
-            | Expression::After { expr: inner, .. } => {
+            Expression::Before { expr: inner, .. } | Expression::After { expr: inner, .. } => {
                 Self::collect_contract_names(inner, names);
             }
             Expression::Sum(items) => {
@@ -284,11 +288,18 @@ impl StaticAnalyzer {
                     Self::collect_contract_names(item, names);
                 }
             }
-            Expression::ForAll { condition, collection, .. } => {
+            Expression::ForAll {
+                condition,
+                collection,
+                ..
+            } => {
                 Self::collect_contract_names(condition, names);
                 Self::collect_contract_names(collection, names);
             }
-            Expression::Implies { antecedent, consequent } => {
+            Expression::Implies {
+                antecedent,
+                consequent,
+            } => {
                 Self::collect_contract_names(antecedent, names);
                 Self::collect_contract_names(consequent, names);
             }
@@ -298,11 +309,7 @@ impl StaticAnalyzer {
     }
 
     /// Generate a human-readable counterexample for a violated invariant.
-    pub fn generate_counterexample(
-        invariant_name: &str,
-        expected: &str,
-        actual: &str,
-    ) -> String {
+    pub fn generate_counterexample(invariant_name: &str, expected: &str, actual: &str) -> String {
         format!(
             "Invariant '{}' violated:\n  Expected: {}\n  Actual:   {}",
             invariant_name, expected, actual

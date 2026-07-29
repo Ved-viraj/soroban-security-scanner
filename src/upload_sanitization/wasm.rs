@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 /// WASM module structure parsed from binary
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WasmModule {
     /// Version of the WASM module
     pub version: u32,
@@ -23,7 +23,7 @@ pub struct WasmModule {
 }
 
 /// WASM section types
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
     pub id: u8,
     pub name: String,
@@ -67,7 +67,7 @@ impl ValType {
             ValType::V128 => "v128",
             ValType::FuncRef => "funcref",
             ValType::ExternRef => "externref",
-            ValType::Unknown(b) => {
+            ValType::Unknown(_b) => {
                 // static str can't hold dynamic, so fallback
                 "unknown"
             }
@@ -83,7 +83,7 @@ pub struct FuncType {
 }
 
 /// Export entry from the export section
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExportEntry {
     pub name: String,
     pub kind: ExportKind,
@@ -100,7 +100,7 @@ pub enum ExportKind {
 }
 
 /// Function body (code section entry)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionBody {
     pub type_index: u32,
     pub locals: Vec<ValType>,
@@ -108,7 +108,7 @@ pub struct FunctionBody {
 }
 
 /// Import entry
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportEntry {
     pub module: String,
     pub name: String,
@@ -291,9 +291,9 @@ pub fn parse_wasm_module(bytes: &[u8]) -> Result<WasmModule, WasmParseError> {
                     }
                 }
             }
-            10 => {
+            10
                 // Code section
-                if section_start < section_end {
+                if section_start < section_end => {
                     let count = leb128_u32(&bytes[section_start..section_end]);
                     let (_consumed, count) = count;
                     let mut sec_pos = section_start + _consumed;
@@ -313,7 +313,6 @@ pub fn parse_wasm_module(bytes: &[u8]) -> Result<WasmModule, WasmParseError> {
                         }
                     }
                 }
-            }
             _ => {
                 // Skip other sections (memory, table, global, start, element, data, custom)
             }

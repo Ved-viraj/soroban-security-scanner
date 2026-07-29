@@ -96,7 +96,6 @@ rand_chacha = "0.3"
 http-body-util = "0.1.3"
 
 # Protocol Analysis
-serde_yaml = "0.9"
 indexmap = { version = "2", features = ["serde"] }
 
 [dev-dependencies]

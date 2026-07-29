@@ -729,13 +729,6 @@ fn main() -> Result<()> {
         Commands::TimeTravel { action } => run_time_travel_action(action),
         Commands::DifferentialFuzzing { action } => run_differential_fuzzing_action(action),
         Commands::EmergencyStop { action } => run_emergency_stop_action(action),
-        Commands::ProtocolVerify {
-            manifest,
-            simulation_steps,
-            format,
-            output,
-            verbose,
-        } => run_protocol_verify(manifest, simulation_steps, format, output, verbose),
         Commands::Batch { action } => run_batch_action(action),
         Commands::ProtocolVerify {
             manifest,
@@ -745,7 +738,15 @@ fn main() -> Result<()> {
             no_adversarial,
             no_auto_infer,
             verbose,
-        } => run_protocol_verify(manifest, format, output, simulation_steps, no_adversarial, no_auto_infer, verbose),
+        } => run_protocol_verify(
+            manifest,
+            format,
+            output,
+            simulation_steps,
+            no_adversarial,
+            no_auto_infer,
+            verbose,
+        ),
     }
 }
 
@@ -2112,7 +2113,10 @@ fn run_protocol_verify(
     no_auto_infer: bool,
     verbose: bool,
 ) -> Result<()> {
-    println!("{}", "🔬 Protocol-Level Invariant Verification".bold().cyan());
+    println!(
+        "{}",
+        "🔬 Protocol-Level Invariant Verification".bold().cyan()
+    );
     println!("{}", "═".repeat(50).cyan());
 
     let config = stellar_security_scanner::protocol_analysis::VerificationConfig {
@@ -2133,7 +2137,9 @@ fn run_protocol_verify(
     // Output report
     match format.as_str() {
         "json" => {
-            let json = stellar_security_scanner::protocol_analysis::ProtocolVerifyCommand::to_json(&report)?;
+            let json = stellar_security_scanner::protocol_analysis::ProtocolVerifyCommand::to_json(
+                &report,
+            )?;
             match output {
                 Some(path) => {
                     std::fs::write(&path, &json)?;
@@ -2145,10 +2151,10 @@ fn run_protocol_verify(
             }
         }
         _ => {
-            let text = stellar_security_scanner::protocol_analysis::ProtocolVerifyCommand::format_report(
-                &report,
-                verbose,
-            );
+            let text =
+                stellar_security_scanner::protocol_analysis::ProtocolVerifyCommand::format_report(
+                    &report, verbose,
+                );
             match output {
                 Some(path) => {
                     std::fs::write(&path, &text)?;

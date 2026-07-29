@@ -9,7 +9,9 @@
 //! protocol-level invariants and reports protocol-level exploits separately.
 
 use crate::protocol_analysis::manifest::ProtocolManifest;
-use crate::protocol_analysis::simulator::{ProtocolOperation, ProtocolSimulator, SimulationConfig, SimulationReport};
+use crate::protocol_analysis::simulator::{
+    ProtocolOperation, ProtocolSimulator, SimulationConfig, SimulationReport,
+};
 use rand::SeedableRng;
 
 /// An exploit discovered by the adversarial agent.
@@ -98,10 +100,7 @@ impl Default for ExplorationConfig {
 impl AdversarialAgent {
     /// Create a new adversarial agent.
     pub fn new(manifest: ProtocolManifest, config: ExplorationConfig) -> Self {
-        Self {
-            manifest,
-            config,
-        }
+        Self { manifest, config }
     }
 
     /// Run adversarial exploration.
@@ -190,9 +189,8 @@ impl AdversarialAgent {
     /// Run an adversarial simulation with biased operation selection.
     fn run_adversarial_simulation(&mut self, round: u32) -> SimulationReport {
         // Use a biased simulation that aggressively targets invariants
-        use rand::Rng;
         let seed = self.config.seed + round as u64;
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let _rng = rand::rngs::StdRng::seed_from_u64(seed);
 
         let mut config = SimulationConfig::default();
         config.num_steps = self.config.sequence_length as u64;
@@ -205,7 +203,7 @@ impl AdversarialAgent {
         config.operation_weights.remove_liquidity = 0.05;
         config.operation_weights.deposit = 0.15;
         config.operation_weights.borrow = 0.20; // More borrows (risky for lending)
-        config.operation_weights.repay = 0.05;   // Fewer repays
+        config.operation_weights.repay = 0.05; // Fewer repays
         config.operation_weights.transfer = 0.10;
         config.operation_weights.governance_vote = 0.05;
         config.operation_weights.bridge_deposit = 0.10;
@@ -243,16 +241,36 @@ impl AdversarialAgent {
 
         for op in operations {
             match op {
-                ProtocolOperation::Swap { pool, .. } => { contracts.insert(pool.clone()); }
-                ProtocolOperation::AddLiquidity { pool, .. } => { contracts.insert(pool.clone()); }
-                ProtocolOperation::RemoveLiquidity { pool, .. } => { contracts.insert(pool.clone()); }
-                ProtocolOperation::Deposit { pool, .. } => { contracts.insert(pool.clone()); }
-                ProtocolOperation::Borrow { pool, .. } => { contracts.insert(pool.clone()); }
-                ProtocolOperation::Repay { pool, .. } => { contracts.insert(pool.clone()); }
-                ProtocolOperation::Transfer { token, .. } => { contracts.insert(token.clone()); }
-                ProtocolOperation::GovernanceVote { governance, .. } => { contracts.insert(governance.clone()); }
-                ProtocolOperation::BridgeDeposit { bridge, .. } => { contracts.insert(bridge.clone()); }
-                ProtocolOperation::BridgeWithdraw { bridge, .. } => { contracts.insert(bridge.clone()); }
+                ProtocolOperation::Swap { pool, .. } => {
+                    contracts.insert(pool.clone());
+                }
+                ProtocolOperation::AddLiquidity { pool, .. } => {
+                    contracts.insert(pool.clone());
+                }
+                ProtocolOperation::RemoveLiquidity { pool, .. } => {
+                    contracts.insert(pool.clone());
+                }
+                ProtocolOperation::Deposit { pool, .. } => {
+                    contracts.insert(pool.clone());
+                }
+                ProtocolOperation::Borrow { pool, .. } => {
+                    contracts.insert(pool.clone());
+                }
+                ProtocolOperation::Repay { pool, .. } => {
+                    contracts.insert(pool.clone());
+                }
+                ProtocolOperation::Transfer { token, .. } => {
+                    contracts.insert(token.clone());
+                }
+                ProtocolOperation::GovernanceVote { governance, .. } => {
+                    contracts.insert(governance.clone());
+                }
+                ProtocolOperation::BridgeDeposit { bridge, .. } => {
+                    contracts.insert(bridge.clone());
+                }
+                ProtocolOperation::BridgeWithdraw { bridge, .. } => {
+                    contracts.insert(bridge.clone());
+                }
             }
         }
 
@@ -262,10 +280,16 @@ impl AdversarialAgent {
     /// Classify exploit difficulty.
     fn classify_difficulty(&self, operations: &[ProtocolOperation]) -> ExploitDifficulty {
         let unique_contracts = self.extract_involved_contracts(operations);
-        let cross_contract_ops = operations.iter()
-            .filter(|op| matches!(op, ProtocolOperation::Swap { .. }
-                | ProtocolOperation::BridgeDeposit { .. }
-                | ProtocolOperation::BridgeWithdraw { .. }))
+        let cross_contract_ops = operations
+            .iter()
+            .filter(|op| {
+                matches!(
+                    op,
+                    ProtocolOperation::Swap { .. }
+                        | ProtocolOperation::BridgeDeposit { .. }
+                        | ProtocolOperation::BridgeWithdraw { .. }
+                )
+            })
             .count();
 
         match (unique_contracts.len(), cross_contract_ops, operations.len()) {
@@ -279,8 +303,14 @@ impl AdversarialAgent {
     /// Generate mitigation recommendations.
     fn generate_mitigations(&self, invariant_name: &str) -> Vec<String> {
         vec![
-            format!("Implement reentrancy guard for invariant '{}'", invariant_name),
-            format!("Add invariant check before and after all state modifications affecting '{}'", invariant_name),
+            format!(
+                "Implement reentrancy guard for invariant '{}'",
+                invariant_name
+            ),
+            format!(
+                "Add invariant check before and after all state modifications affecting '{}'",
+                invariant_name
+            ),
             "Use checks-effects-interactions pattern".to_string(),
             "Consider circuit breakers for critical invariants".to_string(),
         ]
@@ -289,8 +319,12 @@ impl AdversarialAgent {
     /// Check for sandwich attack vulnerabilities.
     fn check_sandwich_attacks(&self) -> Option<AdversarialExploit> {
         // Check if there are AMM pools that are vulnerable to sandwich attacks
-        let has_amm = self.manifest.contracts.iter()
-            .any(|c| matches!(c.role, crate::protocol_analysis::manifest::ContractRole::AmmPool));
+        let has_amm = self.manifest.contracts.iter().any(|c| {
+            matches!(
+                c.role,
+                crate::protocol_analysis::manifest::ContractRole::AmmPool
+            )
+        });
 
         if has_amm {
             Some(AdversarialExploit {
@@ -318,11 +352,19 @@ impl AdversarialAgent {
     /// Check for flash loan attack vulnerabilities.
     fn check_flash_loan_attacks(&self) -> Option<AdversarialExploit> {
         // Check if there's a lending pool that could be exploited with flash loans
-        let has_lending = self.manifest.contracts.iter()
-            .any(|c| matches!(c.role, crate::protocol_analysis::manifest::ContractRole::LendingPool));
+        let has_lending = self.manifest.contracts.iter().any(|c| {
+            matches!(
+                c.role,
+                crate::protocol_analysis::manifest::ContractRole::LendingPool
+            )
+        });
 
-        let has_amm = self.manifest.contracts.iter()
-            .any(|c| matches!(c.role, crate::protocol_analysis::manifest::ContractRole::AmmPool));
+        let has_amm = self.manifest.contracts.iter().any(|c| {
+            matches!(
+                c.role,
+                crate::protocol_analysis::manifest::ContractRole::AmmPool
+            )
+        });
 
         if has_lending && has_amm {
             Some(AdversarialExploit {

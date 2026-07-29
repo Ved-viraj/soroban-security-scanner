@@ -224,7 +224,7 @@ impl VersionRegistry {
         }
 
         // Demote previous stable version(s) to deprecated if they exist
-        for (_, other_info) in versions.iter_mut() {
+        for other_info in versions.values_mut() {
             if other_info.lifecycle == VersionLifecycle::Stable && other_info.version != version {
                 other_info.deprecate();
             }

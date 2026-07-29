@@ -154,11 +154,14 @@ fn test_validate_manifest() {
 
 #[test]
 fn test_validate_manifest_missing_contract() {
-    let manifest = ProtocolParser::from_yaml(r#"
+    let manifest = ProtocolParser::from_yaml(
+        r#"
 name: "BadProtocol"
 contracts: []
 invariants: []
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     assert!(ProtocolParser::validate(&manifest).is_err());
 }
 
@@ -203,7 +206,8 @@ fn test_infer_amm_invariants() {
     let inferred = PatternDetector::infer_all(&manifest);
 
     // Should find at least the constant product invariant for the AMM pool
-    let amm_invariants: Vec<_> = inferred.iter()
+    let amm_invariants: Vec<_> = inferred
+        .iter()
         .filter(|i| matches!(i.pattern, ProtocolPattern::ConstantProductAmm))
         .collect();
     assert!(!amm_invariants.is_empty(), "Should infer AMM invariants");
@@ -214,10 +218,14 @@ fn test_infer_lending_invariants() {
     let manifest = ProtocolParser::from_yaml(sample_lending_manifest_yaml()).unwrap();
     let inferred = PatternDetector::infer_all(&manifest);
 
-    let lending_invariants: Vec<_> = inferred.iter()
+    let lending_invariants: Vec<_> = inferred
+        .iter()
         .filter(|i| matches!(i.pattern, ProtocolPattern::LendingPool))
         .collect();
-    assert!(!lending_invariants.is_empty(), "Should infer lending invariants");
+    assert!(
+        !lending_invariants.is_empty(),
+        "Should infer lending invariants"
+    );
 }
 
 #[test]
@@ -245,7 +253,8 @@ fn test_static_verify_equality() {
 
     assert!(!results.is_empty());
     // The constant product invariant should be structurally verified
-    let cp_result = results.iter()
+    let cp_result = results
+        .iter()
         .find(|r| r.invariant_name == "constant_product");
     assert!(cp_result.is_some());
 }
@@ -256,8 +265,7 @@ fn test_static_verify_lending() {
     let results = StaticAnalyzer::verify_all(&manifest);
 
     assert!(!results.is_empty());
-    let solvency_result = results.iter()
-        .find(|r| r.invariant_name == "solvency");
+    let solvency_result = results.iter().find(|r| r.invariant_name == "solvency");
     assert!(solvency_result.is_some());
 }
 
@@ -318,7 +326,11 @@ fn test_simulator_tracks_coverage() {
 
     assert!(!report.coverage.operations_executed.is_empty());
     // Should execute at least a few swap operations
-    let swaps = report.coverage.operations_executed.get("swap").unwrap_or(&0);
+    let swaps = report
+        .coverage
+        .operations_executed
+        .get("swap")
+        .unwrap_or(&0);
     assert!(*swaps > 0, "Should execute swap operations");
 }
 
@@ -382,15 +394,15 @@ fn test_find_path() {
 fn test_adversarial_exploration_dex() {
     let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
     let config = ExplorationConfig {
-        num_rounds: 2,
+        num_rounds: 5,
         sequence_length: 10,
         ..Default::default()
     };
     let mut agent = AdversarialAgent::new(manifest, config);
     let report = agent.explore();
 
-    // Should complete without error
-    assert!(report.exploration_time_ms > 0);
+    // Should complete without error with contracts involved
+    assert!(!report.contracts_involved.is_empty());
 }
 
 #[test]
@@ -441,12 +453,7 @@ fn test_health_summary_formatting() {
     let static_results = StaticAnalyzer::verify_all(&manifest);
     let graph = ProtocolCallGraphBuilder::build(&manifest);
 
-    let health = ProtocolHealthDashboard::generate(
-        &manifest,
-        &static_results,
-        None,
-        Some(graph),
-    );
+    let health = ProtocolHealthDashboard::generate(&manifest, &static_results, None, Some(graph));
 
     let summary = ProtocolHealthDashboard::format_summary(&health);
     assert!(summary.contains("SorobanDEX"));
@@ -621,7 +628,10 @@ invariants:
 
     // Auto-infer
     let inferred = PatternDetector::infer_all(&manifest);
-    assert!(inferred.len() >= 2, "Should infer invariants for all 3 contract types");
+    assert!(
+        inferred.len() >= 2,
+        "Should infer invariants for all 3 contract types"
+    );
 
     // Static analysis
     let static_results = StaticAnalyzer::verify_all(&manifest);
@@ -641,13 +651,16 @@ invariants:
 
 #[test]
 fn test_empty_manifest() {
-    let manifest = ProtocolParser::from_yaml(r#"
+    let manifest = ProtocolParser::from_yaml(
+        r#"
 name: "EmptyProtocol"
 version: "0.1.0"
 contracts: []
 interactions: []
 invariants: []
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     assert!(ProtocolParser::validate(&manifest).is_err());
 }
 

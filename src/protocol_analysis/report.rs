@@ -9,13 +9,17 @@
 //! - Outputs a combined report
 //! - Exits with code 0 (all pass), 1 (violations), or 2 (unknown/unprovable)
 
-use crate::protocol_analysis::adversarial::{AdversarialAgent, AdversarialReport, ExplorationConfig};
-use crate::protocol_analysis::call_graph::{ProtocolCallGraphBuilder, ProtocolCallGraph};
+use crate::protocol_analysis::adversarial::{
+    AdversarialAgent, AdversarialReport, ExplorationConfig,
+};
+use crate::protocol_analysis::call_graph::{ProtocolCallGraph, ProtocolCallGraphBuilder};
 use crate::protocol_analysis::health::{HealthCoverage, ProtocolHealth, ProtocolHealthDashboard};
 use crate::protocol_analysis::inference::PatternDetector;
 use crate::protocol_analysis::manifest::ProtocolManifest;
 use crate::protocol_analysis::simulator::{ProtocolSimulator, SimulationConfig, SimulationReport};
-use crate::protocol_analysis::static_analysis::{StaticAnalyzer, StaticVerificationResult, VerificationStatus};
+use crate::protocol_analysis::static_analysis::{
+    StaticAnalyzer, StaticVerificationResult, VerificationStatus,
+};
 
 /// Configuration for the verification process.
 #[derive(Debug, Clone)]
@@ -213,9 +217,10 @@ impl ProtocolVerifyCommand {
         ));
 
         // Determine exit code
-        let has_violations = static_results.iter().any(|r| {
-            matches!(r.status, VerificationStatus::Violated { .. })
-        }) || !simulation_report.violations_found.is_empty()
+        let has_violations = static_results
+            .iter()
+            .any(|r| matches!(r.status, VerificationStatus::Violated { .. }))
+            || !simulation_report.violations_found.is_empty()
             || adversarial_report
                 .as_ref()
                 .map(|r| !r.exploits.is_empty())
@@ -260,18 +265,17 @@ impl ProtocolVerifyCommand {
             "\n🔬 Protocol Verification Report: {}\n",
             report.protocol_name
         ));
-        output.push_str(&format!(
-            "   ═══════════════════════════════════════\n"
-        ));
-        output.push_str(&format!(
-            "   ⏱ Total time: {}ms\n",
-            report.total_time_ms
-        ));
+        output.push_str("   ═══════════════════════════════════════\n");
+        output.push_str(&format!("   ⏱ Total time: {}ms\n", report.total_time_ms));
 
         // Manifest validation
         output.push_str(&format!(
             "\n📋 Manifest: {}\n",
-            if report.manifest_valid { "✓ Valid" } else { "✗ Invalid" }
+            if report.manifest_valid {
+                "✓ Valid"
+            } else {
+                "✗ Invalid"
+            }
         ));
         if !report.manifest_errors.is_empty() {
             for err in &report.manifest_errors {
@@ -313,13 +317,8 @@ impl ProtocolVerifyCommand {
 
         // Simulation results
         if let Some(sim) = &report.simulation_report {
-            output.push_str(&format!(
-                "\n🎲 Dynamic Simulation\n",
-            ));
-            output.push_str(&format!(
-                "   • Steps executed: {}\n",
-                sim.total_steps
-            ));
+            output.push_str("\n🎲 Dynamic Simulation\n");
+            output.push_str(&format!("   • Steps executed: {}\n", sim.total_steps));
             output.push_str(&format!(
                 "   • Invariants violated: {}\n",
                 sim.violations_found.len()
@@ -332,13 +331,8 @@ impl ProtocolVerifyCommand {
 
         // Adversarial results
         if let Some(adv) = &report.adversarial_report {
-            output.push_str(&format!(
-                "\n🕵️ Adversarial Exploration\n",
-            ));
-            output.push_str(&format!(
-                "   • Exploits found: {}\n",
-                adv.exploits.len()
-            ));
+            output.push_str("\n🕵️ Adversarial Exploration\n");
+            output.push_str(&format!("   • Exploits found: {}\n", adv.exploits.len()));
             output.push_str(&format!(
                 "   • Total estimated profit: ${:.2}\n",
                 adv.total_estimated_profit
@@ -349,19 +343,14 @@ impl ProtocolVerifyCommand {
                         "   • {} [{}] - ${:.2}\n",
                         exploit.name, exploit.difficulty, exploit.estimated_profit
                     ));
-                    output.push_str(&format!(
-                        "     {}\n",
-                        exploit.description
-                    ));
+                    output.push_str(&format!("     {}\n", exploit.description));
                 }
             }
         }
 
         // Health summary
         if let Some(health) = &report.health {
-            output.push_str(&format!(
-                "\n🏥 Health Summary\n"
-            ));
+            output.push_str("\n🏥 Health Summary\n");
             output.push_str(&format!(
                 "   • Health score: {:.1}%\n",
                 health.summary.health_score * 100.0
@@ -403,8 +392,7 @@ impl ProtocolVerifyCommand {
 
     /// Generate a JSON report.
     pub fn to_json(report: &ProtocolVerifyReport) -> Result<String, String> {
-        serde_json::to_string_pretty(report)
-            .map_err(|e| format!("JSON serialization error: {}", e))
+        serde_json::to_string_pretty(report).map_err(|e| format!("JSON serialization error: {}", e))
     }
 }
 
@@ -426,7 +414,10 @@ impl<'de> serde::Deserialize<'de> for ExitCode {
             0 => Ok(ExitCode::AllPassed),
             1 => Ok(ExitCode::ViolationsFound),
             2 => Ok(ExitCode::Unprovable),
-            _ => Err(serde::de::Error::custom(format!("Invalid exit code: {}", n))),
+            _ => Err(serde::de::Error::custom(format!(
+                "Invalid exit code: {}",
+                n
+            ))),
         }
     }
 }

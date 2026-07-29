@@ -58,6 +58,7 @@ impl ScanAccessRole {
         matches!(self, ScanAccessRole::Admin)
     }
 
+    #[allow(clippy::should_implement_trait)]
     /// Convert from string (used when deserializing from JWT claims)
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
@@ -289,7 +290,7 @@ impl ScanAccessControl {
         }
 
         // Check 3: Has the scan been explicitly shared with this user?
-        if self.is_scan_shared_with(&scan, user_id) {
+        if self.is_scan_shared_with(scan, user_id) {
             return Ok(());
         }
 
@@ -545,6 +546,7 @@ impl ScanAccessControl {
 
     // ── Access Audit Logging ────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     /// Log an access attempt to a scan result
     pub fn log_access(
         &self,

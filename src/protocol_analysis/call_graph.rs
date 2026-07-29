@@ -147,7 +147,8 @@ impl ProtocolCallGraphBuilder {
                     invariants_before: Vec::new(),
                     invariants_after: Vec::new(),
                     has_external_call: has_external_calls,
-                    modifies_state: function.mutability == "write" || function.mutability == "payable",
+                    modifies_state: function.mutability == "write"
+                        || function.mutability == "payable",
                 };
 
                 nodes.insert(node_id.clone(), node);
@@ -161,7 +162,10 @@ impl ProtocolCallGraphBuilder {
 
         // Create edges from interactions
         for interaction in &manifest.interactions {
-            let from_id = format!("{}::{}", interaction.from_contract, interaction.from_function);
+            let from_id = format!(
+                "{}::{}",
+                interaction.from_contract, interaction.from_function
+            );
             let to_id = format!("{}::{}", interaction.to_contract, interaction.to_function);
 
             edges.push(CallGraphEdge {
@@ -184,22 +188,43 @@ impl ProtocolCallGraphBuilder {
     }
 
     /// Classify a function into a control flow phase.
-    fn classify_function_phase(function_name: &str, role: &ContractRole) -> ControlFlowPhase {
+    fn classify_function_phase(function_name: &str, _role: &ContractRole) -> ControlFlowPhase {
         let name_lower = function_name.to_lowercase();
 
-        if name_lower.contains("auth") || name_lower.contains("require") || name_lower.contains("verify") {
+        if name_lower.contains("auth")
+            || name_lower.contains("require")
+            || name_lower.contains("verify")
+        {
             ControlFlowPhase::Authentication
-        } else if name_lower.contains("validate") || name_lower.contains("check") || name_lower.contains("assert") {
+        } else if name_lower.contains("validate")
+            || name_lower.contains("check")
+            || name_lower.contains("assert")
+        {
             ControlFlowPhase::Validation
-        } else if name_lower.contains("swap") || name_lower.contains("execute") || name_lower.contains("process") {
+        } else if name_lower.contains("swap")
+            || name_lower.contains("execute")
+            || name_lower.contains("process")
+        {
             ControlFlowPhase::CoreLogic
-        } else if name_lower.contains("update") || name_lower.contains("set") || name_lower.contains("write") {
+        } else if name_lower.contains("update")
+            || name_lower.contains("set")
+            || name_lower.contains("write")
+        {
             ControlFlowPhase::StateUpdate
-        } else if name_lower.contains("emit") || name_lower.contains("event") || name_lower.contains("log") {
+        } else if name_lower.contains("emit")
+            || name_lower.contains("event")
+            || name_lower.contains("log")
+        {
             ControlFlowPhase::EventEmission
-        } else if name_lower.contains("call") || name_lower.contains("invoke") || name_lower.contains("delegate") {
+        } else if name_lower.contains("call")
+            || name_lower.contains("invoke")
+            || name_lower.contains("delegate")
+        {
             ControlFlowPhase::CrossContractCall
-        } else if name_lower.contains("cleanup") || name_lower.contains("finalize") || name_lower.contains("reset") {
+        } else if name_lower.contains("cleanup")
+            || name_lower.contains("finalize")
+            || name_lower.contains("reset")
+        {
             ControlFlowPhase::Cleanup
         } else {
             ControlFlowPhase::EntryPoint
@@ -209,11 +234,21 @@ impl ProtocolCallGraphBuilder {
     /// Check if a function is an entry point.
     fn is_entry_point(function_name: &str) -> bool {
         let entry_functions = [
-            "swap", "add_liquidity", "remove_liquidity",
-            "deposit", "borrow", "repay", "liquidate",
-            "mint", "burn", "transfer",
-            "vote", "delegate", "propose",
-            "bridge_deposit", "bridge_withdraw",
+            "swap",
+            "add_liquidity",
+            "remove_liquidity",
+            "deposit",
+            "borrow",
+            "repay",
+            "liquidate",
+            "mint",
+            "burn",
+            "transfer",
+            "vote",
+            "delegate",
+            "propose",
+            "bridge_deposit",
+            "bridge_withdraw",
         ];
         entry_functions.contains(&function_name)
     }
@@ -221,7 +256,7 @@ impl ProtocolCallGraphBuilder {
     /// Find invariant-critical sections in the call graph.
     fn find_critical_sections(
         nodes: &HashMap<String, CallGraphNode>,
-        edges: &[CallGraphEdge],
+        _edges: &[CallGraphEdge],
         manifest: &ProtocolManifest,
     ) -> Vec<InvariantCriticalSection> {
         let mut sections = Vec::new();
@@ -237,7 +272,12 @@ impl ProtocolCallGraphBuilder {
                 // Find sequences of state-modifying nodes that reference the invariant's data
                 let state_nodes: Vec<&CallGraphNode> = nodes
                     .values()
-                    .filter(|n| n.modifies_state && deps.iter().any(|d| n.contract.contains(d) || d.contains(&n.contract)))
+                    .filter(|n| {
+                        n.modifies_state
+                            && deps
+                                .iter()
+                                .any(|d| n.contract.contains(d) || d.contains(&n.contract))
+                    })
                     .collect();
 
                 if state_nodes.len() >= 2 {
@@ -303,8 +343,7 @@ impl ProtocolCallGraphBuilder {
                 Self::collect_contract_names(left, names);
                 Self::collect_contract_names(right, names);
             }
-            Expression::Before { expr: inner, .. }
-            | Expression::After { expr: inner, .. } => {
+            Expression::Before { expr: inner, .. } | Expression::After { expr: inner, .. } => {
                 Self::collect_contract_names(inner, names);
             }
             Expression::Sum(items) => {
@@ -312,11 +351,18 @@ impl ProtocolCallGraphBuilder {
                     Self::collect_contract_names(item, names);
                 }
             }
-            Expression::ForAll { condition, collection, .. } => {
+            Expression::ForAll {
+                condition,
+                collection,
+                ..
+            } => {
                 Self::collect_contract_names(condition, names);
                 Self::collect_contract_names(collection, names);
             }
-            Expression::Implies { antecedent, consequent } => {
+            Expression::Implies {
+                antecedent,
+                consequent,
+            } => {
                 Self::collect_contract_names(antecedent, names);
                 Self::collect_contract_names(consequent, names);
             }
@@ -326,22 +372,24 @@ impl ProtocolCallGraphBuilder {
     }
 
     /// Annotate nodes with invariant information.
-    pub fn annotate_invariants(
-        graph: &mut ProtocolCallGraph,
-        manifest: &ProtocolManifest,
-    ) {
+    pub fn annotate_invariants(graph: &mut ProtocolCallGraph, manifest: &ProtocolManifest) {
         // Pre-compute dependencies for each invariant outside the loop
-        let invariant_deps: Vec<(String, Vec<String>)> = manifest.invariants.iter()
+        let invariant_deps: Vec<(String, Vec<String>)> = manifest
+            .invariants
+            .iter()
             .map(|inv| {
                 let deps = Self::find_invariant_dependencies(&inv.expression, &graph.nodes);
                 (inv.name.clone(), deps)
             })
             .collect();
 
-        for (_node_id, node) in &mut graph.nodes {
+        for node in graph.nodes.values_mut() {
             for (inv_name, deps) in &invariant_deps {
                 // If this node's contract is referenced by the invariant
-                if deps.iter().any(|d| node.contract.contains(d) || d.contains(&node.contract)) {
+                if deps
+                    .iter()
+                    .any(|d| node.contract.contains(d) || d.contains(&node.contract))
+                {
                     node.invariants_before.push(format!("before:{}", inv_name));
                     node.invariants_after.push(format!("after:{}", inv_name));
                 }
@@ -350,11 +398,7 @@ impl ProtocolCallGraphBuilder {
     }
 
     /// Find the shortest path between two nodes in the call graph.
-    pub fn find_path(
-        graph: &ProtocolCallGraph,
-        from: &str,
-        to: &str,
-    ) -> Option<Vec<String>> {
+    pub fn find_path(graph: &ProtocolCallGraph, from: &str, to: &str) -> Option<Vec<String>> {
         if !graph.nodes.contains_key(from) || !graph.nodes.contains_key(to) {
             return None;
         }
@@ -381,12 +425,10 @@ impl ProtocolCallGraphBuilder {
             }
 
             for edge in &graph.edges {
-                if edge.from == current {
-                    if !visited.contains(&edge.to) {
-                        visited.insert(edge.to.clone());
-                        parent.insert(edge.to.clone(), Some(current.clone()));
-                        queue.push_back(edge.to.clone());
-                    }
+                if edge.from == current && !visited.contains(&edge.to) {
+                    visited.insert(edge.to.clone());
+                    parent.insert(edge.to.clone(), Some(current.clone()));
+                    queue.push_back(edge.to.clone());
                 }
             }
         }
@@ -413,10 +455,10 @@ impl ProtocolCallGraphBuilder {
                 ControlFlowPhase::Cleanup => "lightgray",
             };
             dot.push_str(&format!(
-                "    \"{}\" [label=\"{}\\n{}\", fillcolor={}, style=filled];\n",
+                "    \"{}\" [label=\"{}\\n{:?}\", fillcolor={}, style=filled];\n",
                 id.replace('"', "\\\""),
                 id.replace('"', "\\\""),
-                format!("{:?}", node.phase),
+                node.phase,
                 color
             ));
         }

@@ -8,8 +8,10 @@
 
 pub mod config;
 pub mod monitoring;
+#[cfg(feature = "database")]
 pub mod pool;
 
 pub use self::config::DbPoolConfig;
 pub use self::monitoring::PoolMonitor;
+#[cfg(feature = "database")]
 pub use self::pool::DbPool;

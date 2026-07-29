@@ -3,9 +3,9 @@
 //! Validates WASM module structure and exported function signatures
 //! against the expected Stellar Environment Interface (SEI).
 
-use crate::upload_sanitization::wasm::{
-    parse_wasm_module, ExportKind, FuncType, ValType, WasmModule,
-};
+#[cfg(test)]
+use crate::upload_sanitization::wasm::parse_wasm_module;
+use crate::upload_sanitization::wasm::{ExportKind, ValType, WasmModule};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -647,18 +647,23 @@ mod tests {
     #[test]
     fn test_validate_valid_transfer_signature() {
         // Create a WASM with transfer(Address, Address, i128) -> ()
-        // In WASM, Address and i128 are typically passed as i32 pointers
+        // In WASM, Address is passed as i32 pointer, i128 as i64 pair
         let wasm_bytes = create_test_wasm_with_function(
             "transfer",
-            &[0x7F, 0x7F, 0x7F], // i32, i32, i32 (Address, Address, i128 as pointers)
+            &[0x7F, 0x7F, 0x7E], // i32, i32, i64 (Address, Address, i128)
             &[],                 // no results
         );
         let wasm = parse_wasm_module(&wasm_bytes).unwrap();
         let interface = SorobanContractInterface::default();
 
         let result = validate_function_signatures(&wasm, &interface);
+        let transfer_result = result
+            .function_results
+            .iter()
+            .find(|r| r.function_name == "transfer")
+            .unwrap();
         assert!(
-            result.valid,
+            transfer_result.matches,
             "transfer function should have valid signature"
         );
     }

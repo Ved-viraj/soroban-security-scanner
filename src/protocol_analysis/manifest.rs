@@ -39,7 +39,7 @@
 //!     severity: critical
 //! ```
 
-use serde::de::{self, MapAccess, Visitor, Error};
+use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -390,7 +390,11 @@ impl Serialize for Expression {
                 s.serialize_field("pool", pool.as_str())?;
                 s.end()
             }
-            Expression::SumOver { contract, key_pattern, items } => {
+            Expression::SumOver {
+                contract,
+                key_pattern,
+                items,
+            } => {
                 let mut s = serializer.serialize_struct("Expression", 4)?;
                 s.serialize_field("type", "sum_over")?;
                 s.serialize_field("contract", contract.as_str())?;
@@ -398,7 +402,10 @@ impl Serialize for Expression {
                 s.serialize_field("items", items)?;
                 s.end()
             }
-            Expression::CountOver { contract, key_pattern } => {
+            Expression::CountOver {
+                contract,
+                key_pattern,
+            } => {
                 let mut s = serializer.serialize_struct("Expression", 3)?;
                 s.serialize_field("type", "count_over")?;
                 s.serialize_field("contract", contract.as_str())?;
@@ -425,7 +432,11 @@ impl Serialize for Expression {
                 s.serialize_field("expr", expr)?;
                 s.end()
             }
-            Expression::ForAll { variable, collection, condition } => {
+            Expression::ForAll {
+                variable,
+                collection,
+                condition,
+            } => {
                 let mut s = serializer.serialize_struct("Expression", 4)?;
                 s.serialize_field("type", "for_all")?;
                 s.serialize_field("variable", variable)?;
@@ -433,7 +444,10 @@ impl Serialize for Expression {
                 s.serialize_field("condition", condition)?;
                 s.end()
             }
-            Expression::Implies { antecedent, consequent } => {
+            Expression::Implies {
+                antecedent,
+                consequent,
+            } => {
                 let mut s = serializer.serialize_struct("Expression", 3)?;
                 s.serialize_field("type", "implies")?;
                 s.serialize_field("antecedent", antecedent)?;
@@ -496,9 +510,6 @@ impl<'de> Visitor<'de> for ExpressionVisitor {
     }
 
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-        let mut expr_type: Option<String> = None;
-        let mut value: Option<serde_json::Value> = None;
-
         // Collect all fields into a JSON Value for flexible parsing
         let mut fields = serde_json::Map::new();
         while let Some(key) = map.next_key::<String>()? {
@@ -506,34 +517,41 @@ impl<'de> Visitor<'de> for ExpressionVisitor {
             fields.insert(key, val);
         }
 
-        expr_type = fields.get("type").and_then(|v| v.as_str().map(String::from));
+        let expr_type: Option<String> = fields
+            .get("type")
+            .and_then(|v| v.as_str().map(String::from));
 
         let t = expr_type.ok_or_else(|| de::Error::missing_field("type"))?;
 
         Ok(match t.as_str() {
             "literal" => {
-                let val = fields.get("value")
+                let val = fields
+                    .get("value")
                     .and_then(|v| v.as_f64())
                     .ok_or_else(|| de::Error::custom("literal requires a 'value' field"))?;
                 Expression::Literal(val)
             }
             "string" => {
-                let val = fields.get("value")
+                let val = fields
+                    .get("value")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("string requires a 'value' field"))?;
                 Expression::String(val)
             }
             "bool" => {
-                let val = fields.get("value")
+                let val = fields
+                    .get("value")
                     .and_then(|v| v.as_bool())
                     .ok_or_else(|| de::Error::custom("bool requires a 'value' field"))?;
                 Expression::Bool(val)
             }
             "storage" => {
-                let contract = fields.get("contract")
+                let contract = fields
+                    .get("contract")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("storage requires a 'contract' field"))?;
-                let key = fields.get("key")
+                let key = fields
+                    .get("key")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("storage requires a 'key' field"))?;
                 Expression::Storage {
@@ -542,10 +560,12 @@ impl<'de> Visitor<'de> for ExpressionVisitor {
                 }
             }
             "reserve" => {
-                let pool = fields.get("pool")
+                let pool = fields
+                    .get("pool")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("reserve requires a 'pool' field"))?;
-                let token = fields.get("token")
+                let token = fields
+                    .get("token")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("reserve requires a 'token' field"))?;
                 Expression::Reserve {
@@ -554,87 +574,136 @@ impl<'de> Visitor<'de> for ExpressionVisitor {
                 }
             }
             "constant_k" => {
-                let pool = fields.get("pool")
+                let pool = fields
+                    .get("pool")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("constant_k requires a 'pool' field"))?;
-                Expression::ConstantK { pool: Box::new(pool) }
+                Expression::ConstantK {
+                    pool: Box::new(pool),
+                }
             }
             "total_supply" => {
-                let token = fields.get("token")
+                let token = fields
+                    .get("token")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("total_supply requires a 'token' field"))?;
-                Expression::TotalSupply { token: Box::new(token) }
+                Expression::TotalSupply {
+                    token: Box::new(token),
+                }
             }
             "total_deposits" => {
-                let pool = fields.get("pool")
+                let pool = fields
+                    .get("pool")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("total_deposits requires a 'pool' field"))?;
-                Expression::TotalDeposits { pool: Box::new(pool) }
+                Expression::TotalDeposits {
+                    pool: Box::new(pool),
+                }
             }
             "total_loans" => {
-                let pool = fields.get("pool")
+                let pool = fields
+                    .get("pool")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("total_loans requires a 'pool' field"))?;
-                Expression::TotalLoans { pool: Box::new(pool) }
+                Expression::TotalLoans {
+                    pool: Box::new(pool),
+                }
             }
             "locked_soroban" => {
-                let bridge = fields.get("bridge")
+                let bridge = fields
+                    .get("bridge")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("locked_soroban requires a 'bridge' field"))?;
-                Expression::LockedSoroban { bridge: Box::new(bridge) }
+                Expression::LockedSoroban {
+                    bridge: Box::new(bridge),
+                }
             }
             "minted_counterpart" => {
-                let bridge = fields.get("bridge")
+                let bridge = fields
+                    .get("bridge")
                     .and_then(|v| v.as_str().map(String::from))
-                    .ok_or_else(|| de::Error::custom("minted_counterpart requires a 'bridge' field"))?;
-                Expression::MintedCounterpart { bridge: Box::new(bridge) }
+                    .ok_or_else(|| {
+                        de::Error::custom("minted_counterpart requires a 'bridge' field")
+                    })?;
+                Expression::MintedCounterpart {
+                    bridge: Box::new(bridge),
+                }
             }
             "total_voting_power" => {
-                let gov = fields.get("gov")
+                let gov = fields
+                    .get("gov")
                     .and_then(|v| v.as_str().map(String::from))
-                    .ok_or_else(|| de::Error::custom("total_voting_power requires a 'gov' field"))?;
+                    .ok_or_else(|| {
+                        de::Error::custom("total_voting_power requires a 'gov' field")
+                    })?;
                 Expression::TotalVotingPower { gov: Box::new(gov) }
             }
             "sum_delegated_power" => {
-                let gov = fields.get("gov")
+                let gov = fields
+                    .get("gov")
                     .and_then(|v| v.as_str().map(String::from))
-                    .ok_or_else(|| de::Error::custom("sum_delegated_power requires a 'gov' field"))?;
+                    .ok_or_else(|| {
+                        de::Error::custom("sum_delegated_power requires a 'gov' field")
+                    })?;
                 Expression::SumDelegatedPower { gov: Box::new(gov) }
             }
             "collateral_value" => {
-                let vault = fields.get("vault")
+                let vault = fields
+                    .get("vault")
                     .and_then(|v| v.as_str().map(String::from))
-                    .ok_or_else(|| de::Error::custom("collateral_value requires a 'vault' field"))?;
-                Expression::CollateralValue { vault: Box::new(vault) }
+                    .ok_or_else(|| {
+                        de::Error::custom("collateral_value requires a 'vault' field")
+                    })?;
+                Expression::CollateralValue {
+                    vault: Box::new(vault),
+                }
             }
             "available_liquidity" => {
-                let pool = fields.get("pool")
+                let pool = fields
+                    .get("pool")
                     .and_then(|v| v.as_str().map(String::from))
-                    .ok_or_else(|| de::Error::custom("available_liquidity requires a 'pool' field"))?;
-                Expression::AvailableLiquidity { pool: Box::new(pool) }
+                    .ok_or_else(|| {
+                        de::Error::custom("available_liquidity requires a 'pool' field")
+                    })?;
+                Expression::AvailableLiquidity {
+                    pool: Box::new(pool),
+                }
             }
             "protocol_fees" => {
-                let pool = fields.get("pool")
+                let pool = fields
+                    .get("pool")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("protocol_fees requires a 'pool' field"))?;
-                Expression::ProtocolFees { pool: Box::new(pool) }
+                Expression::ProtocolFees {
+                    pool: Box::new(pool),
+                }
             }
             "sum" => {
                 let items: Vec<Expression> = serde_json::from_value(
-                    fields.get("items").cloned().unwrap_or(serde_json::Value::Array(vec![]))
-                ).map_err(de::Error::custom)?;
+                    fields
+                        .get("items")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Array(vec![])),
+                )
+                .map_err(de::Error::custom)?;
                 Expression::Sum(items)
             }
             "sum_over" => {
-                let contract = fields.get("contract")
+                let contract = fields
+                    .get("contract")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("sum_over requires a 'contract' field"))?;
-                let key_pattern = fields.get("key_pattern")
+                let key_pattern = fields
+                    .get("key_pattern")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("sum_over requires a 'key_pattern' field"))?;
                 let items: Vec<Expression> = serde_json::from_value(
-                    fields.get("items").cloned().unwrap_or(serde_json::Value::Array(vec![]))
-                ).map_err(de::Error::custom)?;
+                    fields
+                        .get("items")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Array(vec![])),
+                )
+                .map_err(de::Error::custom)?;
                 Expression::SumOver {
                     contract: Box::new(contract),
                     key_pattern: Box::new(key_pattern),
@@ -642,24 +711,33 @@ impl<'de> Visitor<'de> for ExpressionVisitor {
                 }
             }
             "count_over" => {
-                let contract = fields.get("contract")
+                let contract = fields
+                    .get("contract")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("count_over requires a 'contract' field"))?;
-                let key_pattern = fields.get("key_pattern")
+                let key_pattern = fields
+                    .get("key_pattern")
                     .and_then(|v| v.as_str().map(String::from))
-                    .ok_or_else(|| de::Error::custom("count_over requires a 'key_pattern' field"))?;
+                    .ok_or_else(|| {
+                        de::Error::custom("count_over requires a 'key_pattern' field")
+                    })?;
                 Expression::CountOver {
                     contract: Box::new(contract),
                     key_pattern: Box::new(key_pattern),
                 }
             }
             "before" | "after" => {
-                let operation = fields.get("operation")
+                let operation = fields
+                    .get("operation")
                     .and_then(|v| v.as_str().map(String::from))
-                    .ok_or_else(|| de::Error::custom("before/after requires an 'operation' field"))?;
-                let expr: Expression = serde_json::from_value(
-                    fields.get("expr").cloned().ok_or_else(|| de::Error::custom("before/after requires an 'expr' field"))?
-                ).map_err(de::Error::custom)?;
+                    .ok_or_else(|| {
+                        de::Error::custom("before/after requires an 'operation' field")
+                    })?;
+                let expr: Expression =
+                    serde_json::from_value(fields.get("expr").cloned().ok_or_else(|| {
+                        de::Error::custom("before/after requires an 'expr' field")
+                    })?)
+                    .map_err(de::Error::custom)?;
                 if t == "before" {
                     Expression::Before {
                         operation: Box::new(operation),
@@ -673,15 +751,20 @@ impl<'de> Visitor<'de> for ExpressionVisitor {
                 }
             }
             "for_all" => {
-                let variable = fields.get("variable")
+                let variable = fields
+                    .get("variable")
                     .and_then(|v| v.as_str().map(String::from))
                     .ok_or_else(|| de::Error::custom("for_all requires a 'variable' field"))?;
-                let collection: Expression = serde_json::from_value(
-                    fields.get("collection").cloned().ok_or_else(|| de::Error::custom("for_all requires a 'collection' field"))?
-                ).map_err(de::Error::custom)?;
-                let condition: Expression = serde_json::from_value(
-                    fields.get("condition").cloned().ok_or_else(|| de::Error::custom("for_all requires a 'condition' field"))?
-                ).map_err(de::Error::custom)?;
+                let collection: Expression =
+                    serde_json::from_value(fields.get("collection").cloned().ok_or_else(|| {
+                        de::Error::custom("for_all requires a 'collection' field")
+                    })?)
+                    .map_err(de::Error::custom)?;
+                let condition: Expression =
+                    serde_json::from_value(fields.get("condition").cloned().ok_or_else(|| {
+                        de::Error::custom("for_all requires a 'condition' field")
+                    })?)
+                    .map_err(de::Error::custom)?;
                 Expression::ForAll {
                     variable,
                     collection: Box::new(collection),
@@ -689,12 +772,16 @@ impl<'de> Visitor<'de> for ExpressionVisitor {
                 }
             }
             "implies" => {
-                let antecedent: Expression = serde_json::from_value(
-                    fields.get("antecedent").cloned().ok_or_else(|| de::Error::custom("implies requires an 'antecedent' field"))?
-                ).map_err(de::Error::custom)?;
-                let consequent: Expression = serde_json::from_value(
-                    fields.get("consequent").cloned().ok_or_else(|| de::Error::custom("implies requires a 'consequent' field"))?
-                ).map_err(de::Error::custom)?;
+                let antecedent: Expression =
+                    serde_json::from_value(fields.get("antecedent").cloned().ok_or_else(|| {
+                        de::Error::custom("implies requires an 'antecedent' field")
+                    })?)
+                    .map_err(de::Error::custom)?;
+                let consequent: Expression =
+                    serde_json::from_value(fields.get("consequent").cloned().ok_or_else(|| {
+                        de::Error::custom("implies requires a 'consequent' field")
+                    })?)
+                    .map_err(de::Error::custom)?;
                 Expression::Implies {
                     antecedent: Box::new(antecedent),
                     consequent: Box::new(consequent),
@@ -702,45 +789,122 @@ impl<'de> Visitor<'de> for ExpressionVisitor {
             }
             "not" => {
                 let inner: Expression = serde_json::from_value(
-                    fields.get("inner").cloned().ok_or_else(|| de::Error::custom("not requires an 'inner' field"))?
-                ).map_err(de::Error::custom)?;
+                    fields
+                        .get("inner")
+                        .cloned()
+                        .ok_or_else(|| de::Error::custom("not requires an 'inner' field"))?,
+                )
+                .map_err(de::Error::custom)?;
                 Expression::Not(Box::new(inner))
             }
             // Binary operations
-            "add" | "sub" | "mul" | "div" | "eq" | "neq" | "gte" | "lte" | "gt" | "lt" | "and" | "or" => {
-                let left: Expression = serde_json::from_value(
-                    fields.get("left").cloned().ok_or_else(|| de::Error::custom(format!("{} requires a 'left' field", t)))?
-                ).map_err(de::Error::custom)?;
-                let right: Expression = serde_json::from_value(
-                    fields.get("right").cloned().ok_or_else(|| de::Error::custom(format!("{} requires a 'right' field", t)))?
-                ).map_err(de::Error::custom)?;
+            "add" | "sub" | "mul" | "div" | "eq" | "neq" | "gte" | "lte" | "gt" | "lt" | "and"
+            | "or" => {
+                let left: Expression =
+                    serde_json::from_value(fields.get("left").cloned().ok_or_else(|| {
+                        de::Error::custom(format!("{} requires a 'left' field", t))
+                    })?)
+                    .map_err(de::Error::custom)?;
+                let right: Expression =
+                    serde_json::from_value(fields.get("right").cloned().ok_or_else(|| {
+                        de::Error::custom(format!("{} requires a 'right' field", t))
+                    })?)
+                    .map_err(de::Error::custom)?;
                 match t.as_str() {
-                    "add" => Expression::Add { left: Box::new(left), right: Box::new(right) },
-                    "sub" => Expression::Sub { left: Box::new(left), right: Box::new(right) },
-                    "mul" => Expression::Mul { left: Box::new(left), right: Box::new(right) },
-                    "div" => Expression::Div { left: Box::new(left), right: Box::new(right) },
-                    "eq" => Expression::Eq { left: Box::new(left), right: Box::new(right) },
-                    "neq" => Expression::Neq { left: Box::new(left), right: Box::new(right) },
-                    "gte" => Expression::Gte { left: Box::new(left), right: Box::new(right) },
-                    "lte" => Expression::Lte { left: Box::new(left), right: Box::new(right) },
-                    "gt" => Expression::Gt { left: Box::new(left), right: Box::new(right) },
-                    "lt" => Expression::Lt { left: Box::new(left), right: Box::new(right) },
-                    "and" => Expression::And { left: Box::new(left), right: Box::new(right) },
-                    "or" => Expression::Or { left: Box::new(left), right: Box::new(right) },
+                    "add" => Expression::Add {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "sub" => Expression::Sub {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "mul" => Expression::Mul {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "div" => Expression::Div {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "eq" => Expression::Eq {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "neq" => Expression::Neq {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "gte" => Expression::Gte {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "lte" => Expression::Lte {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "gt" => Expression::Gt {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "lt" => Expression::Lt {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "and" => Expression::And {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    "or" => Expression::Or {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
                     _ => unreachable!(),
                 }
             }
-            _ => return Err(de::Error::unknown_variant(&t, &[
-                "literal", "string", "bool", "storage", "reserve", "constant_k",
-                "total_supply", "total_deposits", "total_loans",
-                "locked_soroban", "minted_counterpart",
-                "total_voting_power", "sum_delegated_power",
-                "collateral_value", "available_liquidity", "protocol_fees",
-                "sum", "sum_over", "count_over",
-                "add", "sub", "mul", "div",
-                "eq", "neq", "gte", "lte", "gt", "lt",
-                "before", "after", "and", "or", "not", "implies", "for_all",
-            ])),
+            _ => {
+                return Err(de::Error::unknown_variant(
+                    &t,
+                    &[
+                        "literal",
+                        "string",
+                        "bool",
+                        "storage",
+                        "reserve",
+                        "constant_k",
+                        "total_supply",
+                        "total_deposits",
+                        "total_loans",
+                        "locked_soroban",
+                        "minted_counterpart",
+                        "total_voting_power",
+                        "sum_delegated_power",
+                        "collateral_value",
+                        "available_liquidity",
+                        "protocol_fees",
+                        "sum",
+                        "sum_over",
+                        "count_over",
+                        "add",
+                        "sub",
+                        "mul",
+                        "div",
+                        "eq",
+                        "neq",
+                        "gte",
+                        "lte",
+                        "gt",
+                        "lt",
+                        "before",
+                        "after",
+                        "and",
+                        "or",
+                        "not",
+                        "implies",
+                        "for_all",
+                    ],
+                ))
+            }
         })
     }
 }
@@ -790,7 +954,7 @@ impl ProtocolParser {
                 ));
             }
         }
-        for (i, inv) in manifest.invariants.iter().enumerate() {
+        for inv in manifest.invariants.iter() {
             let refs = Self::collect_contract_refs(&inv.expression);
             for r in refs {
                 if !contract_names.contains(r.as_str()) {
@@ -859,11 +1023,18 @@ impl ProtocolParser {
                     Self::collect_refs_inner(item, refs);
                 }
             }
-            Expression::ForAll { condition, collection, .. } => {
+            Expression::ForAll {
+                condition,
+                collection,
+                ..
+            } => {
                 Self::collect_refs_inner(condition, refs);
                 Self::collect_refs_inner(collection, refs);
             }
-            Expression::Implies { antecedent, consequent } => {
+            Expression::Implies {
+                antecedent,
+                consequent,
+            } => {
                 Self::collect_refs_inner(antecedent, refs);
                 Self::collect_refs_inner(consequent, refs);
             }
@@ -886,6 +1057,7 @@ impl Expression {
         Expression::Sum(items)
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn add(left: Expression, right: Expression) -> Self {
         Expression::Add {
             left: Box::new(left),
@@ -893,6 +1065,7 @@ impl Expression {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn mul(left: Expression, right: Expression) -> Self {
         Expression::Mul {
             left: Box::new(left),

@@ -10,7 +10,7 @@ use crate::protocol_analysis::call_graph::{InvariantCriticalSection, ProtocolCal
 use crate::protocol_analysis::manifest::ProtocolManifest;
 use crate::protocol_analysis::static_analysis::{StaticVerificationResult, VerificationStatus};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Status of a single invariant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,7 +184,8 @@ impl ProtocolHealthDashboard {
         let health_score = if total > 0.0 {
             (verified_count as f64 * 1.0
                 + unknown_count as f64 * 0.5
-                + (total - violated_count as f64 - verified_count as f64 - unknown_count as f64) * 0.0)
+                + (total - violated_count as f64 - verified_count as f64 - unknown_count as f64)
+                    * 0.0)
                 / total
         } else {
             1.0
@@ -214,7 +215,7 @@ impl ProtocolHealthDashboard {
             protocol_version: manifest.version.clone(),
             invariants,
             summary: HealthSummary {
-                total_invariants: total_invariants,
+                total_invariants,
                 verified_count,
                 violated_count,
                 unknown_count,
@@ -297,7 +298,8 @@ impl ProtocolHealthDashboard {
             }
             "lending" => {
                 mitigations.push("Check solvency before allowing new borrows".to_string());
-                mitigations.push("Implement liquidation mechanism for underwater positions".to_string());
+                mitigations
+                    .push("Implement liquidation mechanism for underwater positions".to_string());
             }
             "bridge" => {
                 mitigations.push("Atomic cross-chain verification of mint/burn".to_string());
@@ -305,10 +307,14 @@ impl ProtocolHealthDashboard {
             }
             "stablecoin" => {
                 mitigations.push("Regularly check collateralization ratio".to_string());
-                mitigations.push("Implement emergency shutdown for under-collateralization".to_string());
+                mitigations
+                    .push("Implement emergency shutdown for under-collateralization".to_string());
             }
             _ => {
-                mitigations.push(format!("Implement invariant checks for '{}'", inv_spec.name));
+                mitigations.push(format!(
+                    "Implement invariant checks for '{}'",
+                    inv_spec.name
+                ));
             }
         }
 
@@ -317,8 +323,7 @@ impl ProtocolHealthDashboard {
 
     /// Generate a JSON representation of the dashboard for UI consumption.
     pub fn to_json(health: &ProtocolHealth) -> Result<String, String> {
-        serde_json::to_string_pretty(health)
-            .map_err(|e| format!("JSON serialization error: {}", e))
+        serde_json::to_string_pretty(health).map_err(|e| format!("JSON serialization error: {}", e))
     }
 
     /// Generate a text summary of protocol health.

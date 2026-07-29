@@ -562,7 +562,7 @@ impl AuditTrail {
             .collect();
 
         // Most-recent first.
-        matched.sort_by(|a, b| b.event_timestamp.cmp(&a.event_timestamp));
+        matched.sort_by_key(|e| std::cmp::Reverse(e.event_timestamp));
 
         // Apply offset / limit if requested.
         let start = filter.offset.min(matched.len());
@@ -679,7 +679,7 @@ impl AuditTrail {
             }
         }
 
-        alerts.sort_by(|a, b| b.distinct_ips.cmp(&a.distinct_ips));
+        alerts.sort_by_key(|a| std::cmp::Reverse(a.distinct_ips));
         Ok(alerts)
     }
 

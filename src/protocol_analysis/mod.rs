@@ -75,35 +75,31 @@
 //! let report = engine.verify(&manifest, VerificationConfig::default()).unwrap();
 //! ```
 
-pub mod manifest;
-pub mod inference;
-pub mod static_analysis;
-pub mod simulator;
-pub mod call_graph;
 pub mod adversarial;
+pub mod call_graph;
 pub mod health;
+pub mod inference;
+pub mod manifest;
 pub mod report;
+pub mod simulator;
+pub mod static_analysis;
 
 #[cfg(test)]
 mod tests;
 
 // ── Re-exports ──────────────────────────────────────────────────────────────
-pub use manifest::{
-    ContractRole, ContractSpec, Expression, InvariantSpec, ProtocolManifest, ProtocolParser,
-};
-pub use inference::{
-    InferredInvariant, PatternDetector, ProtocolPattern, PatternConfidence,
-};
-pub use static_analysis::{StaticAnalyzer, StaticVerificationResult, VerificationStatus};
-pub use simulator::{
-    OperationSequence, ProtocolSimulator, SimulationConfig, SimulationReport,
+pub use adversarial::{
+    AdversarialAgent, AdversarialExploit, AdversarialReport, ExploitDifficulty, ExplorationConfig,
 };
 pub use call_graph::{
     CallEdgeType, CallGraphEdge, CallGraphNode, ControlFlowPhase, InvariantCriticalSection,
     ProtocolCallGraph, ProtocolCallGraphBuilder,
 };
-pub use adversarial::{AdversarialAgent, AdversarialExploit, AdversarialReport, ExplorationConfig, ExploitDifficulty};
-pub use health::{
-    HealthCoverage, InvariantStatus, ProtocolHealth, ProtocolHealthDashboard,
+pub use health::{HealthCoverage, InvariantStatus, ProtocolHealth, ProtocolHealthDashboard};
+pub use inference::{InferredInvariant, PatternConfidence, PatternDetector, ProtocolPattern};
+pub use manifest::{
+    ContractRole, ContractSpec, Expression, InvariantSpec, ProtocolManifest, ProtocolParser,
 };
 pub use report::{ProtocolVerifyCommand, ProtocolVerifyReport, VerificationConfig};
+pub use simulator::{OperationSequence, ProtocolSimulator, SimulationConfig, SimulationReport};
+pub use static_analysis::{StaticAnalyzer, StaticVerificationResult, VerificationStatus};

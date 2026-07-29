@@ -128,8 +128,10 @@ impl PatternDetector {
         } else {
             // Infer from function names
             let has_swap = contract.functions.iter().any(|f| f.name.contains("swap"));
-            let has_add_liquidity =
-                contract.functions.iter().any(|f| f.name.contains("add_liquidity"));
+            let has_add_liquidity = contract
+                .functions
+                .iter()
+                .any(|f| f.name.contains("add_liquidity"));
 
             if has_swap && has_add_liquidity {
                 let expr = Expression::eq(
@@ -214,10 +216,7 @@ impl PatternDetector {
             pattern: ProtocolPattern::LendingPool,
             invariant: InvariantSpec {
                 name: format!("{}_balance_sheet", contract.name),
-                description: format!(
-                    "Lending pool {} balance sheet must balance",
-                    contract.name
-                ),
+                description: format!("Lending pool {} balance sheet must balance", contract.name),
                 expression: expr2,
                 severity: "high".to_string(),
                 category: "lending".to_string(),
@@ -299,10 +298,14 @@ impl PatternDetector {
         let mut inferred = Vec::new();
 
         let has_swap = contract.functions.iter().any(|f| f.name.contains("swap"));
-        let has_add_liquidity =
-            contract.functions.iter().any(|f| f.name.contains("add_liquidity"));
-        let has_remove_liquidity =
-            contract.functions.iter().any(|f| f.name.contains("remove_liquidity"));
+        let has_add_liquidity = contract
+            .functions
+            .iter()
+            .any(|f| f.name.contains("add_liquidity"));
+        let has_remove_liquidity = contract
+            .functions
+            .iter()
+            .any(|f| f.name.contains("remove_liquidity"));
 
         if has_swap && has_add_liquidity && has_remove_liquidity {
             let expr = Expression::eq(
@@ -335,7 +338,10 @@ impl PatternDetector {
             });
         }
 
-        let has_deposit = contract.functions.iter().any(|f| f.name.contains("deposit"));
+        let has_deposit = contract
+            .functions
+            .iter()
+            .any(|f| f.name.contains("deposit"));
         let has_borrow = contract.functions.iter().any(|f| f.name.contains("borrow"));
         let has_repay = contract.functions.iter().any(|f| f.name.contains("repay"));
 
@@ -387,7 +393,7 @@ impl PatternDetector {
             })
             .collect();
 
-        if tokens.len() >= 1 && vaults.len() >= 1 {
+        if !tokens.is_empty() && !vaults.is_empty() {
             let token = &tokens[0];
             let mut invariants = Vec::new();
 

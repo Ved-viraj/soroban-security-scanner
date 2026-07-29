@@ -225,7 +225,7 @@ impl ProtocolSimulator {
     /// Initialize protocol state from the manifest.
     fn initialize_state(manifest: &ProtocolManifest) -> ProtocolState {
         let mut storage = HashMap::new();
-        let mut balances = HashMap::new();
+        let balances = HashMap::new();
         let mut amm_pools = HashMap::new();
         let mut lending_pools = HashMap::new();
 
@@ -378,7 +378,10 @@ impl ProtocolSimulator {
         let elapsed = start.elapsed().as_millis() as u64;
 
         // Build coverage report
-        let contracts_interacted: Vec<String> = self.state.amm_pools.keys()
+        let contracts_interacted: Vec<String> = self
+            .state
+            .amm_pools
+            .keys()
             .chain(self.state.lending_pools.keys())
             .cloned()
             .collect();
@@ -392,13 +395,19 @@ impl ProtocolSimulator {
                 operations_executed: operations_count,
                 unique_users_active: active_users.len() as u32,
                 contracts_interacted,
-                invariants_covered: invariant_names.iter()
+                invariants_covered: invariant_names
+                    .iter()
                     .filter(|name| {
-                        !self.violations.iter().any(|v| &v.violated_invariant == *name)
+                        !self
+                            .violations
+                            .iter()
+                            .any(|v| &v.violated_invariant == *name)
                     })
                     .cloned()
                     .collect(),
-                invariants_violated: self.violations.iter()
+                invariants_violated: self
+                    .violations
+                    .iter()
                     .map(|v| v.violated_invariant.clone())
                     .collect(),
             },
@@ -416,8 +425,16 @@ impl ProtocolSimulator {
         // Pick a random pool or contract
         let pools: Vec<String> = self.state.amm_pools.keys().cloned().collect();
         let lending_pools: Vec<String> = self.state.lending_pools.keys().cloned().collect();
-        let bridges: Vec<String> = self.manifest.contracts.iter()
-            .filter(|c| matches!(c.role, crate::protocol_analysis::manifest::ContractRole::Bridge))
+        let bridges: Vec<String> = self
+            .manifest
+            .contracts
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c.role,
+                    crate::protocol_analysis::manifest::ContractRole::Bridge
+                )
+            })
             .map(|c| c.name.clone())
             .collect();
 
@@ -459,11 +476,7 @@ impl ProtocolSimulator {
         cumulative += weights.deposit;
         if roll < cumulative && !lending_pools.is_empty() {
             let pool = lending_pools[self.rng.gen_range(0..lending_pools.len())].clone();
-            return ProtocolOperation::Deposit {
-                pool,
-                user,
-                amount,
-            };
+            return ProtocolOperation::Deposit { pool, user, amount };
         }
 
         cumulative += weights.borrow;
@@ -479,11 +492,7 @@ impl ProtocolSimulator {
         cumulative += weights.repay;
         if roll < cumulative && !lending_pools.is_empty() {
             let pool = lending_pools[self.rng.gen_range(0..lending_pools.len())].clone();
-            return ProtocolOperation::Repay {
-                pool,
-                user,
-                amount,
-            };
+            return ProtocolOperation::Repay { pool, user, amount };
         }
 
         cumulative += weights.transfer;
@@ -539,23 +548,32 @@ impl ProtocolSimulator {
     /// Execute a single operation, updating protocol state.
     fn execute_operation(&mut self, op: &ProtocolOperation) {
         match op {
-            ProtocolOperation::Swap { pool, amount_in, .. } => {
+            ProtocolOperation::Swap {
+                pool, amount_in, ..
+            } => {
                 if let Some(pool_state) = self.state.amm_pools.get_mut(pool) {
                     // Simple constant product swap: x * y = k
                     let fee = amount_in * 0.003; // 0.3% fee
                     let amount_in_after_fee = amount_in - fee;
                     let new_reserve_x = pool_state.reserve_x + amount_in_after_fee;
                     let new_reserve_y = pool_state.k / new_reserve_x;
-                    let amount_out = pool_state.reserve_y - new_reserve_y;
+                    let _amount_out = pool_state.reserve_y - new_reserve_y;
 
                     pool_state.reserve_x = new_reserve_x;
                     pool_state.reserve_y = new_reserve_y;
                     pool_state.k = new_reserve_x * new_reserve_y; // slight drift due to rounding
                 }
             }
-            ProtocolOperation::AddLiquidity { pool, amount_x, amount_y, .. } => {
+            ProtocolOperation::AddLiquidity {
+                pool,
+                amount_x,
+                amount_y,
+                ..
+            } => {
                 if let Some(pool_state) = self.state.amm_pools.get_mut(pool) {
-                    let shares = (amount_x / pool_state.reserve_x).min(amount_y / pool_state.reserve_y) * pool_state.total_shares;
+                    let shares = (amount_x / pool_state.reserve_x)
+                        .min(amount_y / pool_state.reserve_y)
+                        * pool_state.total_shares;
                     pool_state.reserve_x += amount_x;
                     pool_state.reserve_y += amount_y;
                     pool_state.k = pool_state.reserve_x * pool_state.reserve_y;
@@ -580,7 +598,10 @@ impl ProtocolSimulator {
                     *lending_state.user_deposits.entry(*user).or_insert(0.0) += amount;
                     if let Some(storage) = self.state.storage.get_mut(pool) {
                         storage.insert("total_deposits".to_string(), lending_state.total_deposits);
-                        storage.insert("available_liquidity".to_string(), lending_state.available_liquidity);
+                        storage.insert(
+                            "available_liquidity".to_string(),
+                            lending_state.available_liquidity,
+                        );
                     }
                 }
             }
@@ -594,7 +615,10 @@ impl ProtocolSimulator {
                     *lending_state.user_loans.entry(*user).or_insert(0.0) += borrow_amount;
                     if let Some(storage) = self.state.storage.get_mut(pool) {
                         storage.insert("total_loans".to_string(), lending_state.total_loans);
-                        storage.insert("available_liquidity".to_string(), lending_state.available_liquidity);
+                        storage.insert(
+                            "available_liquidity".to_string(),
+                            lending_state.available_liquidity,
+                        );
                     }
                 }
             }
@@ -610,7 +634,10 @@ impl ProtocolSimulator {
                     }
                     if let Some(storage) = self.state.storage.get_mut(pool) {
                         storage.insert("total_loans".to_string(), lending_state.total_loans);
-                        storage.insert("available_liquidity".to_string(), lending_state.available_liquidity);
+                        storage.insert(
+                            "available_liquidity".to_string(),
+                            lending_state.available_liquidity,
+                        );
                     }
                 }
             }
@@ -632,14 +659,19 @@ impl ProtocolSimulator {
                     storage.insert("minted_counterpart".to_string(), minted + withdraw_amount);
                 }
             }
-            ProtocolOperation::GovernanceVote { governance, power, .. } => {
+            ProtocolOperation::GovernanceVote { governance, .. } => {
                 if let Some(storage) = self.state.storage.get_mut(governance) {
                     // Delegated power changes with votes
                     let total_power = storage.get("total_voting_power").copied().unwrap_or(0.0);
                     storage.insert("total_delegated_power".to_string(), total_power);
                 }
             }
-            ProtocolOperation::Transfer { token, from, to, amount } => {
+            ProtocolOperation::Transfer {
+                token,
+                from,
+                to,
+                amount,
+            } => {
                 // Simple balance transfer
                 let balance_key_from = format!("balance_{}", from);
                 let balance_key_to = format!("balance_{}", to);
@@ -708,14 +740,13 @@ impl ProtocolSimulator {
     fn evaluate_numeric(&self, expr: &Expression) -> f64 {
         match expr {
             Expression::Literal(val) => *val,
-            Expression::Storage { contract, key } => {
-                self.state
-                    .storage
-                    .get(contract.as_str())
-                    .and_then(|s| s.get(key.as_str()))
-                    .copied()
-                    .unwrap_or(0.0)
-            }
+            Expression::Storage { contract, key } => self
+                .state
+                .storage
+                .get(contract.as_str())
+                .and_then(|s| s.get(key.as_str()))
+                .copied()
+                .unwrap_or(0.0),
             Expression::Add { left, right } => {
                 self.evaluate_numeric(left) + self.evaluate_numeric(right)
             }
@@ -727,11 +758,13 @@ impl ProtocolSimulator {
             }
             Expression::Div { left, right } => {
                 let r = self.evaluate_numeric(right);
-                if r == 0.0 { 0.0 } else { self.evaluate_numeric(left) / r }
+                if r == 0.0 {
+                    0.0
+                } else {
+                    self.evaluate_numeric(left) / r
+                }
             }
-            Expression::Sum(items) => {
-                items.iter().map(|item| self.evaluate_numeric(item)).sum()
-            }
+            Expression::Sum(items) => items.iter().map(|item| self.evaluate_numeric(item)).sum(),
             Expression::Reserve { pool, token } => {
                 if let Some(amm) = self.state.amm_pools.get(pool.as_str()) {
                     if token.as_str().contains("x") {
@@ -748,72 +781,66 @@ impl ProtocolSimulator {
                         .unwrap_or(0.0)
                 }
             }
-            Expression::ConstantK { pool } => {
-                self.state
-                    .amm_pools
-                    .get(pool.as_str())
-                    .map(|a| a.k)
-                    .or_else(|| {
-                        self.state
-                            .storage
-                            .get(pool.as_str())
-                            .and_then(|s| s.get("k"))
-                            .copied()
-                    })
-                    .unwrap_or(0.0)
-            }
-            Expression::TotalSupply { token } => {
-                self.state
-                    .storage
-                    .get(token.as_str())
-                    .and_then(|s| s.get("total_supply"))
-                    .copied()
-                    .unwrap_or(1_000_000.0)
-            }
-            Expression::TotalDeposits { pool } => {
-                self.state
-                    .lending_pools
-                    .get(pool.as_str())
-                    .map(|l| l.total_deposits)
-                    .or_else(|| {
-                        self.state
-                            .storage
-                            .get(pool.as_str())
-                            .and_then(|s| s.get("total_deposits"))
-                            .copied()
-                    })
-                    .unwrap_or(0.0)
-            }
-            Expression::TotalLoans { pool } => {
-                self.state
-                    .lending_pools
-                    .get(pool.as_str())
-                    .map(|l| l.total_loans)
-                    .or_else(|| {
-                        self.state
-                            .storage
-                            .get(pool.as_str())
-                            .and_then(|s| s.get("total_loans"))
-                            .copied()
-                    })
-                    .unwrap_or(0.0)
-            }
-            Expression::LockedSoroban { bridge } => {
-                self.state
-                    .storage
-                    .get(bridge.as_str())
-                    .and_then(|s| s.get("locked_soroban"))
-                    .copied()
-                    .unwrap_or(0.0)
-            }
-            Expression::MintedCounterpart { bridge } => {
-                self.state
-                    .storage
-                    .get(bridge.as_str())
-                    .and_then(|s| s.get("minted_counterpart"))
-                    .copied()
-                    .unwrap_or(0.0)
-            }
+            Expression::ConstantK { pool } => self
+                .state
+                .amm_pools
+                .get(pool.as_str())
+                .map(|a| a.k)
+                .or_else(|| {
+                    self.state
+                        .storage
+                        .get(pool.as_str())
+                        .and_then(|s| s.get("k"))
+                        .copied()
+                })
+                .unwrap_or(0.0),
+            Expression::TotalSupply { token } => self
+                .state
+                .storage
+                .get(token.as_str())
+                .and_then(|s| s.get("total_supply"))
+                .copied()
+                .unwrap_or(1_000_000.0),
+            Expression::TotalDeposits { pool } => self
+                .state
+                .lending_pools
+                .get(pool.as_str())
+                .map(|l| l.total_deposits)
+                .or_else(|| {
+                    self.state
+                        .storage
+                        .get(pool.as_str())
+                        .and_then(|s| s.get("total_deposits"))
+                        .copied()
+                })
+                .unwrap_or(0.0),
+            Expression::TotalLoans { pool } => self
+                .state
+                .lending_pools
+                .get(pool.as_str())
+                .map(|l| l.total_loans)
+                .or_else(|| {
+                    self.state
+                        .storage
+                        .get(pool.as_str())
+                        .and_then(|s| s.get("total_loans"))
+                        .copied()
+                })
+                .unwrap_or(0.0),
+            Expression::LockedSoroban { bridge } => self
+                .state
+                .storage
+                .get(bridge.as_str())
+                .and_then(|s| s.get("locked_soroban"))
+                .copied()
+                .unwrap_or(0.0),
+            Expression::MintedCounterpart { bridge } => self
+                .state
+                .storage
+                .get(bridge.as_str())
+                .and_then(|s| s.get("minted_counterpart"))
+                .copied()
+                .unwrap_or(0.0),
             _ => 0.0,
         }
     }
