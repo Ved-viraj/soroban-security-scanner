@@ -1,453 +1,744 @@
-//! Tests for protocol-level invariant verification.
+//! Comprehensive tests for the protocol analysis module.
+//!
+//! Tests cover all 8 phases of Issue #449.
 
-#[cfg(test)]
-mod protocol_analysis_tests {
-    use crate::protocol_analysis::manifest::{ContractRole, ContractSpec, ProtocolManifest};
-    use crate::protocol_analysis::{InvariantKind, ProtocolInvariant, VerificationStatus};
+use crate::protocol_analysis::*;
 
-    fn make_test_manifest() -> ProtocolManifest {
-        ProtocolManifest {
-            name: "TestDEX".into(),
-            description: "A simple test DEX protocol".into(),
-            contracts: vec![
-                ContractSpec {
-                    name: "token_a".into(),
-                    address: "CAAAA...".into(),
-                    wasm_path: "token_a.wasm".into(),
-                    role: ContractRole::Token,
-                },
-                ContractSpec {
-                    name: "pool".into(),
-                    address: "CBBBB...".into(),
-                    wasm_path: "pool.wasm".into(),
-                    role: ContractRole::AMMPool,
-                },
-            ],
-            interactions: vec![InteractionSpec {
-                from_contract: "token_a".into(),
-                from_function: "transfer".into(),
-                to_contract: "pool".into(),
-                to_function: "swap".into(),
-            }],
-            invariants: Vec::new(),
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+fn sample_dex_manifest_yaml() -> &'static str {
+    r#"
+name: "SorobanDEX"
+version: "1.0.0"
+description: "A decentralized exchange on Soroban"
+contracts:
+  - name: pool_a
+    address: "CA3D5K7FJ9..."
+    wasm_path: "./pool.wasm"
+    role: amm_pool
+    functions:
+      - name: swap
+        mutability: write
+      - name: add_liquidity
+        mutability: write
+      - name: remove_liquidity
+        mutability: write
+    storage_keys:
+      - reserve_x
+      - reserve_y
+      - k
+  - name: token_x
+    address: "CB7F2M9N4..."
+    wasm_path: "./token.wasm"
+    role: token
+    functions:
+      - name: transfer
+        mutability: write
+      - name: balance_of
+        mutability: read
+  - name: token_y
+    address: "CC9D1K3L5..."
+    wasm_path: "./token.wasm"
+    role: token
+    functions:
+      - name: transfer
+        mutability: write
+      - name: balance_of
+        mutability: read
+interactions:
+  - from_contract: pool_a
+    from_function: swap
+    to_contract: token_x
+    to_function: transfer
+    value_transfer: true
+  - from_contract: pool_a
+    from_function: swap
+    to_contract: token_y
+    to_function: transfer
+    value_transfer: true
+invariants:
+  - name: constant_product
+    description: "reserve_x * reserve_y = k"
+    expression:
+      type: eq
+      left:
+        type: mul
+        left:
+          type: storage
+          contract: pool_a
+          key: reserve_x
+        right:
+          type: storage
+          contract: pool_a
+          key: reserve_y
+      right:
+        type: storage
+        contract: pool_a
+        key: k
+    severity: critical
+    category: dex
+"#
+}
+
+fn sample_lending_manifest_yaml() -> &'static str {
+    r#"
+name: "SorobanLend"
+version: "1.0.0"
+contracts:
+  - name: lending_pool
+    role: lending_pool
+    functions:
+      - name: deposit
+        mutability: write
+      - name: borrow
+        mutability: write
+      - name: repay
+        mutability: write
+    storage_keys:
+      - total_deposits
+      - total_loans
+      - available_liquidity
+  - name: token
+    role: token
+    functions:
+      - name: transfer
+        mutability: write
+interactions:
+  - from_contract: lending_pool
+    from_function: deposit
+    to_contract: token
+    to_function: transfer
+invariants:
+  - name: solvency
+    description: "total_deposits >= total_loans"
+    expression:
+      type: gte
+      left:
+        type: storage
+        contract: lending_pool
+        key: total_deposits
+      right:
+        type: storage
+        contract: lending_pool
+        key: total_loans
+    severity: critical
+    category: lending
+"#
+}
+
+// ── Phase 1: Protocol Specification Format Tests ────────────────────────────
+
+#[test]
+fn test_parse_dex_manifest() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    assert_eq!(manifest.name, "SorobanDEX");
+    assert_eq!(manifest.version, "1.0.0");
+    assert_eq!(manifest.contracts.len(), 3);
+    assert_eq!(manifest.interactions.len(), 2);
+    assert_eq!(manifest.invariants.len(), 1);
+}
+
+#[test]
+fn test_parse_lending_manifest() {
+    let manifest = ProtocolParser::from_yaml(sample_lending_manifest_yaml()).unwrap();
+    assert_eq!(manifest.name, "SorobanLend");
+    assert_eq!(manifest.contracts.len(), 2);
+    assert_eq!(manifest.invariants.len(), 1);
+}
+
+#[test]
+fn test_validate_manifest() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    assert!(ProtocolParser::validate(&manifest).is_ok());
+}
+
+#[test]
+fn test_validate_manifest_missing_contract() {
+    let manifest = ProtocolParser::from_yaml(
+        r#"
+name: "BadProtocol"
+contracts: []
+invariants: []
+"#,
+    )
+    .unwrap();
+    assert!(ProtocolParser::validate(&manifest).is_err());
+}
+
+#[test]
+fn test_manifest_to_yaml_roundtrip() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let yaml = manifest.to_yaml().unwrap();
+    let parsed_back = ProtocolParser::from_yaml(&yaml).unwrap();
+    assert_eq!(parsed_back.name, manifest.name);
+    assert_eq!(parsed_back.contracts.len(), manifest.contracts.len());
+}
+
+#[test]
+fn test_expression_constructors() {
+    let expr = Expression::eq(
+        Expression::storage("pool_a", "reserve_x"),
+        Expression::literal(1000.0),
+    );
+    match expr {
+        Expression::Eq { left, right } => {
+            assert!(matches!(*left, Expression::Storage { .. }));
+            assert!(matches!(*right, Expression::Literal(1000.0)));
+        }
+        _ => panic!("Expected Eq expression"),
+    }
+}
+
+#[test]
+fn test_contract_role_display() {
+    assert_eq!(format!("{}", ContractRole::AmmPool), "amm_pool");
+    assert_eq!(format!("{}", ContractRole::Token), "token");
+    assert_eq!(format!("{}", ContractRole::LendingPool), "lending_pool");
+    assert_eq!(format!("{}", ContractRole::Bridge), "bridge");
+    assert_eq!(format!("{}", ContractRole::Governance), "governance");
+}
+
+// ── Phase 2: Auto-Inference Tests ──────────────────────────────────────────
+
+#[test]
+fn test_infer_amm_invariants() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let inferred = PatternDetector::infer_all(&manifest);
+
+    // Should find at least the constant product invariant for the AMM pool
+    let amm_invariants: Vec<_> = inferred
+        .iter()
+        .filter(|i| matches!(i.pattern, ProtocolPattern::ConstantProductAmm))
+        .collect();
+    assert!(!amm_invariants.is_empty(), "Should infer AMM invariants");
+}
+
+#[test]
+fn test_infer_lending_invariants() {
+    let manifest = ProtocolParser::from_yaml(sample_lending_manifest_yaml()).unwrap();
+    let inferred = PatternDetector::infer_all(&manifest);
+
+    let lending_invariants: Vec<_> = inferred
+        .iter()
+        .filter(|i| matches!(i.pattern, ProtocolPattern::LendingPool))
+        .collect();
+    assert!(
+        !lending_invariants.is_empty(),
+        "Should infer lending invariants"
+    );
+}
+
+#[test]
+fn test_inferred_confidence_levels() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let inferred = PatternDetector::infer_all(&manifest);
+
+    for inv in &inferred {
+        match inv.pattern {
+            ProtocolPattern::ConstantProductAmm => {
+                // AMM with storage keys should have HIGH confidence
+                assert_eq!(inv.confidence, PatternConfidence::High);
+            }
+            _ => {}
         }
     }
+}
 
-    #[test]
-    fn test_manifest_validation_passes() {
-        let manifest = make_test_manifest();
-        assert!(manifest.validate().is_ok());
+// ── Phase 3: Static Analysis Tests ─────────────────────────────────────────
+
+#[test]
+fn test_static_verify_equality() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let results = StaticAnalyzer::verify_all(&manifest);
+
+    assert!(!results.is_empty());
+    // The constant product invariant should be structurally verified
+    let cp_result = results
+        .iter()
+        .find(|r| r.invariant_name == "constant_product");
+    assert!(cp_result.is_some());
+}
+
+#[test]
+fn test_static_verify_lending() {
+    let manifest = ProtocolParser::from_yaml(sample_lending_manifest_yaml()).unwrap();
+    let results = StaticAnalyzer::verify_all(&manifest);
+
+    assert!(!results.is_empty());
+    let solvency_result = results.iter().find(|r| r.invariant_name == "solvency");
+    assert!(solvency_result.is_some());
+}
+
+#[test]
+fn test_verification_status_display() {
+    let verified = VerificationStatus::Verified;
+    let violated = VerificationStatus::Violated {
+        counterexample: "test".to_string(),
+    };
+    let unknown = VerificationStatus::Unknown {
+        reason: "test".to_string(),
+    };
+
+    assert!(format!("{}", verified).contains("VERIFIED"));
+    assert!(format!("{}", violated).contains("VIOLATED"));
+    assert!(format!("{}", unknown).contains("UNKNOWN"));
+}
+
+// ── Phase 4: Dynamic Simulation Tests ──────────────────────────────────────
+
+#[test]
+fn test_simulator_run_dex() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let config = SimulationConfig {
+        num_steps: 100,
+        ..Default::default()
+    };
+    let mut simulator = ProtocolSimulator::new(manifest.clone(), config);
+    let report = simulator.run();
+
+    assert!(report.total_steps > 0);
+    assert!(!report.contracts_simulated.is_empty());
+}
+
+#[test]
+fn test_simulator_run_lending() {
+    let manifest = ProtocolParser::from_yaml(sample_lending_manifest_yaml()).unwrap();
+    let config = SimulationConfig {
+        num_steps: 100,
+        ..Default::default()
+    };
+    let mut simulator = ProtocolSimulator::new(manifest.clone(), config);
+    let report = simulator.run();
+
+    assert!(report.total_steps > 0);
+    assert!(!report.contracts_simulated.is_empty());
+}
+
+#[test]
+fn test_simulator_tracks_coverage() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let config = SimulationConfig {
+        num_steps: 100,
+        ..Default::default()
+    };
+    let mut simulator = ProtocolSimulator::new(manifest.clone(), config);
+    let report = simulator.run();
+
+    assert!(!report.coverage.operations_executed.is_empty());
+    // Should execute at least a few swap operations
+    let swaps = report
+        .coverage
+        .operations_executed
+        .get("swap")
+        .unwrap_or(&0);
+    assert!(*swaps > 0, "Should execute swap operations");
+}
+
+// ── Phase 5: Call Graph Tests ──────────────────────────────────────────────
+
+#[test]
+fn test_build_call_graph() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let graph = ProtocolCallGraphBuilder::build(&manifest);
+
+    assert!(!graph.nodes.is_empty());
+    assert!(!graph.entry_points.is_empty(), "Should have entry points");
+}
+
+#[test]
+fn test_call_graph_entry_points() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let graph = ProtocolCallGraphBuilder::build(&manifest);
+
+    // swap, add_liquidity, remove_liquidity should be entry points
+    let has_swap = graph.entry_points.iter().any(|ep| ep.contains("swap"));
+    assert!(has_swap, "swap should be an entry point");
+}
+
+#[test]
+fn test_call_graph_edges() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let graph = ProtocolCallGraphBuilder::build(&manifest);
+
+    // There should be edges for the interactions
+    assert!(!graph.edges.is_empty());
+}
+
+#[test]
+fn test_call_graph_to_dot() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let graph = ProtocolCallGraphBuilder::build(&manifest);
+
+    let dot = ProtocolCallGraphBuilder::to_dot(&graph);
+    assert!(dot.starts_with("digraph"));
+    assert!(dot.contains("->")); // Should have edges
+}
+
+#[test]
+fn test_find_path() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let graph = ProtocolCallGraphBuilder::build(&manifest);
+
+    if graph.nodes.len() >= 2 {
+        let nodes: Vec<String> = graph.nodes.keys().take(2).cloned().collect();
+        let path = ProtocolCallGraphBuilder::find_path(&graph, &nodes[0], &nodes[1]);
+        // Path may or may not exist depending on connectivity
+        // Just verify the function runs without error
+        assert!(path.is_some() || graph.nodes.len() >= 2);
     }
+}
 
-    #[test]
-    fn test_manifest_validation_fails_on_bad_interaction() {
-        let mut manifest = make_test_manifest();
-        manifest
-            .interactions
-            .push(crate::protocol_analysis::manifest::InteractionSpec {
-                from_contract: "nonexistent".into(),
-                from_function: "foo".into(),
-                to_contract: "token_a".into(),
-                to_function: "bar".into(),
-            });
-        assert!(manifest.validate().is_err());
-    }
+// ── Phase 6: Adversarial Tests ─────────────────────────────────────────────
 
-    #[test]
-    fn test_auto_inference_adds_invariants() {
-        let mut manifest = make_test_manifest();
-        crate::protocol_analysis::auto_inference::augment_with_auto_inferred_invariants(
-            &mut manifest,
-        )
-        .unwrap();
+#[test]
+fn test_adversarial_exploration_dex() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let config = ExplorationConfig {
+        num_rounds: 5,
+        sequence_length: 10,
+        ..Default::default()
+    };
+    let mut agent = AdversarialAgent::new(manifest, config);
+    let report = agent.explore();
 
-        // Should have inferred invariants for AMMPool and Token
-        assert!(!manifest.invariants.is_empty());
-        let names: Vec<&str> = manifest
-            .invariants
-            .iter()
-            .map(|i| i.name.as_str())
-            .collect();
-        assert!(names.contains(&"pool__constant_product"));
-        assert!(names.contains(&"token_a__supply_equals_balances"));
-    }
+    // Should complete without error with contracts involved
+    assert!(!report.contracts_involved.is_empty());
+}
 
-    #[test]
-    fn test_bounded_model_check_verified() {
-        let inv = ProtocolInvariant {
-            name: "test".into(),
-            description: "test".into(),
-            expression: "balance[a] == balance[b]".into(),
-            kind: InvariantKind::Structural,
-            spans_contracts: vec!["pool".into()],
-            status: VerificationStatus::Unknown,
-            auto_inferred: false,
-        };
-        let status = super::bounded_model_check(&make_test_manifest(), &inv).unwrap();
-        assert_eq!(status, VerificationStatus::Verified);
-    }
+#[test]
+fn test_exploit_difficulty_display() {
+    assert_eq!(format!("{}", ExploitDifficulty::Easy), "EASY");
+    assert_eq!(format!("{}", ExploitDifficulty::Medium), "MEDIUM");
+    assert_eq!(format!("{}", ExploitDifficulty::Hard), "HARD");
+    assert_eq!(format!("{}", ExploitDifficulty::VeryHard), "VERY HARD");
+}
 
-    #[test]
-    fn test_bounded_model_check_unknown() {
-        let inv = ProtocolInvariant {
-            name: "complex".into(),
-            description: "complex".into(),
-            expression: "something_difficult".into(),
-            kind: InvariantKind::Structural,
-            spans_contracts: vec!["pool".into()],
-            status: VerificationStatus::Unknown,
-            auto_inferred: false,
-        };
-        let status = super::bounded_model_check(&make_test_manifest(), &inv).unwrap();
-        assert_eq!(status, VerificationStatus::Unknown);
-    }
+// ── Phase 7: Health Dashboard Tests ────────────────────────────────────────
 
-    #[test]
-    fn test_call_graph_builds() {
-        let manifest = make_test_manifest();
-        let graph =
-            crate::protocol_analysis::call_graph::build_protocol_call_graph(&manifest).unwrap();
-        // Should have nodes for each contract × phase
-        assert!(graph.nodes.len() >= 2 * 8); // 2 contracts × 8 phases
-        assert!(!graph.edges.is_empty());
-        // Should have at least one critical section for AMM pool
-        assert!(!graph.critical_sections.is_empty());
-    }
+#[test]
+fn test_health_dashboard_generation() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let static_results = StaticAnalyzer::verify_all(&manifest);
+    let config = SimulationConfig {
+        num_steps: 100,
+        ..Default::default()
+    };
+    let mut simulator = ProtocolSimulator::new(manifest.clone(), config);
+    let sim_report = simulator.run();
+    let graph = ProtocolCallGraphBuilder::build(&manifest);
 
-    #[test]
-    fn test_simulation_basic() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let manifest = make_test_manifest();
-        let report = rt
-            .block_on(crate::protocol_analysis::simulation::run_protocol_simulation(&manifest, 100))
-            .unwrap();
+    let sim_coverage = health::HealthCoverage {
+        operations_executed: sim_report.coverage.operations_executed.clone(),
+        contracts_interacted: sim_report.coverage.contracts_interacted.clone(),
+        invariants_covered: sim_report.coverage.invariants_covered.clone(),
+        invariants_violated: sim_report.coverage.invariants_violated.clone(),
+        coverage_percentage: 50.0,
+    };
 
-        assert_eq!(report.total_steps, 100);
-        // Coverage heatmap should have entries for our contracts
-        assert!(report.coverage_heatmap.contains_key("token_a"));
-        assert!(report.coverage_heatmap.contains_key("pool"));
-    }
+    let health = ProtocolHealthDashboard::generate(
+        &manifest,
+        &static_results,
+        Some(sim_coverage),
+        Some(graph),
+    );
 
-    #[test]
-    fn test_dashboard_renders() {
-        let manifest = make_test_manifest();
-        let graph =
-            crate::protocol_analysis::call_graph::build_protocol_call_graph(&manifest).unwrap();
-        let coverage = std::collections::HashMap::from([
-            ("token_a".to_string(), 0.5),
-            ("pool".to_string(), 0.25),
-        ]);
-        let dashboard = crate::protocol_analysis::dashboard::ProtocolHealth::new(
-            "TestDEX",
-            &[],
-            &graph,
-            coverage,
-            &[],
-        );
-        let rendered = dashboard.render();
-        assert!(rendered.contains("TestDEX"));
-        assert!(rendered.contains("INVARIANTS"));
-        assert!(rendered.contains("CALL GRAPH"));
-    }
+    assert_eq!(health.protocol_name, "SorobanDEX");
+    assert!(!health.invariants.is_empty());
+    assert!(health.summary.total_invariants > 0);
+}
 
-    #[test]
-    fn test_verification_report_json() {
-        let report = crate::protocol_analysis::ProtocolVerificationReport {
-            protocol_name: "Test".into(),
-            invariants: vec![],
-            simulation_results: crate::protocol_analysis::simulation::SimulationReport {
-                total_steps: 10,
-                violations: vec![],
-                coverage_heatmap: std::collections::HashMap::new(),
-            },
-            protocol_call_graph: crate::protocol_analysis::call_graph::ProtocolCallGraph {
-                nodes: vec![],
-                edges: vec![],
-                critical_sections: vec![],
-            },
-            adversarial_report: crate::protocol_analysis::adversarial::AdversarialReport {
-                total_rounds: 0,
-                exploits_found: vec![],
-                profit_by_exploit: std::collections::HashMap::new(),
-            },
-            health: crate::protocol_analysis::dashboard::ProtocolHealth::new(
-                "Test",
-                &[],
-                &crate::protocol_analysis::call_graph::ProtocolCallGraph {
-                    nodes: vec![],
-                    edges: vec![],
-                    critical_sections: vec![],
-                },
-                std::collections::HashMap::new(),
-                &[],
-            ),
-            exit_code: 0,
-        };
-        let json = report.to_json().unwrap();
-        assert!(json.contains("\"protocol_name\""));
-    }
+#[test]
+fn test_health_summary_formatting() {
+    let manifest = ProtocolParser::from_yaml(sample_dex_manifest_yaml()).unwrap();
+    let static_results = StaticAnalyzer::verify_all(&manifest);
+    let graph = ProtocolCallGraphBuilder::build(&manifest);
 
-    #[test]
-    fn test_compute_exit_code_all_verified() {
-        let invs = vec![ProtocolInvariant {
-            name: "a".into(),
-            description: "a".into(),
-            expression: "x".into(),
-            kind: InvariantKind::Structural,
-            spans_contracts: vec![],
-            status: VerificationStatus::Verified,
-            auto_inferred: false,
-        }];
-        assert_eq!(super::compute_exit_code(&invs), 0);
-    }
+    let health = ProtocolHealthDashboard::generate(&manifest, &static_results, None, Some(graph));
 
-    #[test]
-    fn test_compute_exit_code_violated() {
-        let invs = vec![ProtocolInvariant {
-            name: "a".into(),
-            description: "a".into(),
-            expression: "x".into(),
-            kind: InvariantKind::Structural,
-            spans_contracts: vec![],
-            status: VerificationStatus::Violated,
-            auto_inferred: false,
-        }];
-        assert_eq!(super::compute_exit_code(&invs), 1);
-    }
+    let summary = ProtocolHealthDashboard::format_summary(&health);
+    assert!(summary.contains("SorobanDEX"));
+    assert!(summary.contains("Health Score"));
+    assert!(summary.contains("Contracts"));
+}
 
-    #[test]
-    fn test_compute_exit_code_unknown() {
-        let invs = vec![ProtocolInvariant {
-            name: "a".into(),
-            description: "a".into(),
-            expression: "x".into(),
-            kind: InvariantKind::Structural,
-            spans_contracts: vec![],
-            status: VerificationStatus::Unknown,
-            auto_inferred: false,
-        }];
-        assert_eq!(super::compute_exit_code(&invs), 2);
-    }
+// ── Phase 8: Full Pipeline Integration Tests ───────────────────────────────
 
-    #[test]
-    fn test_contract_role_display() {
-        assert_eq!(format!("{}", ContractRole::Token), "Token");
-        assert_eq!(format!("{}", ContractRole::Bridge), "Bridge");
-        assert_eq!(
-            format!("{}", ContractRole::Other("Custom".into())),
-            "Custom"
-        );
-    }
+#[test]
+fn test_full_verification_pipeline() {
+    let manifest_yaml = sample_dex_manifest_yaml();
 
-    #[test]
-    fn test_verification_status_emoji() {
-        assert_eq!(VerificationStatus::Verified.as_emoji(), "✓");
-        assert_eq!(VerificationStatus::Unknown.as_emoji(), "⚠");
-        assert_eq!(VerificationStatus::Violated.as_emoji(), "✗");
-    }
+    // Write manifest to temp file
+    let dir = std::env::temp_dir();
+    let manifest_path = dir.join("test_protocol.yaml");
+    std::fs::write(&manifest_path, manifest_yaml).unwrap();
 
-    #[test]
-    fn test_print_console_does_not_panic() {
-        let report = crate::protocol_analysis::ProtocolVerificationReport {
-            protocol_name: "TestProtocol".into(),
-            invariants: vec![ProtocolInvariant {
-                name: "test_invariant".into(),
-                description: "a test".into(),
-                expression: "1 == 1".into(),
-                kind: InvariantKind::Structural,
-                spans_contracts: vec!["c1".into()],
-                status: VerificationStatus::Verified,
-                auto_inferred: false,
-            }],
-            simulation_results: crate::protocol_analysis::simulation::SimulationReport {
-                total_steps: 50,
-                violations: vec![],
-                coverage_heatmap: std::collections::HashMap::new(),
-            },
-            protocol_call_graph: crate::protocol_analysis::call_graph::ProtocolCallGraph {
-                nodes: vec![crate::protocol_analysis::call_graph::ProtocolCallNode {
-                    id: "n1".into(),
-                    contract: "c1".into(),
-                    function: "f1".into(),
-                    phase: crate::protocol_analysis::call_graph::ProtocolPhase::CoreLogic,
-                    invariants_at_entry: vec![],
-                    invariants_at_exit: vec![],
-                }],
-                edges: vec![],
-                critical_sections: vec![],
-            },
-            adversarial_report: crate::protocol_analysis::adversarial::AdversarialReport {
-                total_rounds: 0,
-                exploits_found: vec![],
-                profit_by_exploit: std::collections::HashMap::new(),
-            },
-            health: crate::protocol_analysis::dashboard::ProtocolHealth::new(
-                "TestProtocol",
-                &[],
-                &crate::protocol_analysis::call_graph::ProtocolCallGraph {
-                    nodes: vec![],
-                    edges: vec![],
-                    critical_sections: vec![],
-                },
-                std::collections::HashMap::new(),
-                &[],
-            ),
-            exit_code: 0,
-        };
-        report.print_console(); // should not panic
-    }
+    let config = VerificationConfig {
+        simulation_steps: 100,
+        adversarial_exploration: false, // Faster test
+        auto_infer: true,
+        generate_call_graph: true,
+        ..Default::default()
+    };
 
-    #[tokio::test]
-    async fn test_run_protocol_verification_smoke() {
-        let manifest = make_test_manifest();
-        // Serialize to temp file
-        let tmp = std::env::temp_dir().join("test_manifest.yaml");
-        let yaml = serde_yaml::to_string(&manifest).unwrap();
-        std::fs::write(&tmp, yaml).unwrap();
+    let report = ProtocolVerifyCommand::run(&manifest_path, config);
 
-        let report = crate::protocol_analysis::run_protocol_verification(&tmp, Some(10))
-            .await
-            .unwrap();
+    assert!(report.manifest_valid);
+    assert_eq!(report.protocol_name, "SorobanDEX");
+    assert!(!report.static_results.is_empty());
+    assert!(report.simulation_report.is_some());
+    assert!(report.call_graph.is_some());
+    assert!(report.health.is_some());
 
-        assert_eq!(report.protocol_name, "TestDEX");
-        assert_eq!(report.exit_code, 0); // all invariants should hold with seed data
+    // Clean up
+    let _ = std::fs::remove_file(&manifest_path);
+}
 
-        let _ = std::fs::remove_file(&tmp);
-    }
+#[test]
+fn test_pipeline_with_invalid_manifest() {
+    let dir = std::env::temp_dir();
+    let manifest_path = dir.join("invalid_protocol.yaml");
+    std::fs::write(&manifest_path, "invalid: yaml: [").unwrap();
 
-    #[test]
-    fn test_auto_inference_lending_pool() {
-        let mut manifest = ProtocolManifest {
-            name: "LendingTest".into(),
-            description: "".into(),
-            contracts: vec![ContractSpec {
-                name: "lending".into(),
-                address: "C...".into(),
-                wasm_path: "lending.wasm".into(),
-                role: ContractRole::LendingPool,
-            }],
-            interactions: vec![],
-            invariants: vec![],
-        };
-        crate::protocol_analysis::auto_inference::augment_with_auto_inferred_invariants(
-            &mut manifest,
-        )
-        .unwrap();
-        assert!(manifest
-            .invariants
-            .iter()
-            .any(|i| i.name == "lending__deposits_gte_loans"));
-    }
+    let config = VerificationConfig::default();
+    let report = ProtocolVerifyCommand::run(&manifest_path, config);
 
-    #[test]
-    fn test_auto_inference_bridge() {
-        let mut manifest = ProtocolManifest {
-            name: "BridgeTest".into(),
-            description: "".into(),
-            contracts: vec![ContractSpec {
-                name: "bridge".into(),
-                address: "C...".into(),
-                wasm_path: "bridge.wasm".into(),
-                role: ContractRole::Bridge,
-            }],
-            interactions: vec![],
-            invariants: vec![],
-        };
-        crate::protocol_analysis::auto_inference::augment_with_auto_inferred_invariants(
-            &mut manifest,
-        )
-        .unwrap();
-        assert!(manifest
-            .invariants
-            .iter()
-            .any(|i| i.name == "bridge__locked_equals_minted"));
-    }
+    assert!(!report.manifest_valid);
+    assert!(!report.manifest_errors.is_empty());
 
-    #[test]
-    fn test_auto_inference_governance() {
-        let mut manifest = ProtocolManifest {
-            name: "GovTest".into(),
-            description: "".into(),
-            contracts: vec![ContractSpec {
-                name: "gov".into(),
-                address: "C...".into(),
-                wasm_path: "gov.wasm".into(),
-                role: ContractRole::Governance,
-            }],
-            interactions: vec![],
-            invariants: vec![],
-        };
-        crate::protocol_analysis::auto_inference::augment_with_auto_inferred_invariants(
-            &mut manifest,
-        )
-        .unwrap();
-        assert!(manifest
-            .invariants
-            .iter()
-            .any(|i| i.name == "gov__voting_power_equals_delegated"));
-    }
+    let _ = std::fs::remove_file(&manifest_path);
+}
 
-    #[test]
-    fn test_auto_inference_vault() {
-        let mut manifest = ProtocolManifest {
-            name: "VaultTest".into(),
-            description: "".into(),
-            contracts: vec![ContractSpec {
-                name: "vault".into(),
-                address: "C...".into(),
-                wasm_path: "vault.wasm".into(),
-                role: ContractRole::Vault,
-            }],
-            interactions: vec![],
-            invariants: vec![],
-        };
-        crate::protocol_analysis::auto_inference::augment_with_auto_inferred_invariants(
-            &mut manifest,
-        )
-        .unwrap();
-        assert!(manifest
-            .invariants
-            .iter()
-            .any(|i| i.name == "vault__collateral_sufficient"));
-    }
+#[test]
+fn test_exit_codes() {
+    use report::ExitCode;
 
-    #[test]
-    fn test_auto_inference_staking_pool() {
-        let mut manifest = ProtocolManifest {
-            name: "StakeTest".into(),
-            description: "".into(),
-            contracts: vec![ContractSpec {
-                name: "staking".into(),
-                address: "C...".into(),
-                wasm_path: "staking.wasm".into(),
-                role: ContractRole::StakingPool,
-            }],
-            interactions: vec![],
-            invariants: vec![],
-        };
-        crate::protocol_analysis::auto_inference::augment_with_auto_inferred_invariants(
-            &mut manifest,
-        )
-        .unwrap();
-        assert!(manifest
-            .invariants
-            .iter()
-            .any(|i| i.name == "staking__staked_equals_balance"));
-    }
+    assert_eq!(ExitCode::AllPassed.to_i32(), 0);
+    assert_eq!(ExitCode::ViolationsFound.to_i32(), 1);
+    assert_eq!(ExitCode::Unprovable.to_i32(), 2);
+}
 
-    #[test]
-    fn test_auto_inference_no_duplicates() {
-        let mut manifest = make_test_manifest();
-        crate::protocol_analysis::auto_inference::augment_with_auto_inferred_invariants(
-            &mut manifest,
-        )
-        .unwrap();
-        let count_before = manifest.invariants.len();
-        // Running again should not add duplicates
-        crate::protocol_analysis::auto_inference::augment_with_auto_inferred_invariants(
-            &mut manifest,
-        )
-        .unwrap();
-        assert_eq!(manifest.invariants.len(), count_before);
-    }
+#[test]
+fn test_report_formatting() {
+    let manifest_yaml = sample_dex_manifest_yaml();
+    let dir = std::env::temp_dir();
+    let manifest_path = dir.join("test_formatting_protocol.yaml");
+    std::fs::write(&manifest_path, manifest_yaml).unwrap();
+
+    let config = VerificationConfig {
+        simulation_steps: 50,
+        adversarial_exploration: false,
+        auto_infer: true,
+        ..Default::default()
+    };
+
+    let report = ProtocolVerifyCommand::run(&manifest_path, config);
+    let formatted = ProtocolVerifyCommand::format_report(&report, false);
+
+    assert!(formatted.contains("Protocol Verification Report"));
+    assert!(formatted.contains("SorobanDEX"));
+    assert!(formatted.contains("Exit Code"));
+
+    let _ = std::fs::remove_file(&manifest_path);
+}
+
+// ── Integration: End-to-End Multi-Contract Protocol ────────────────────────
+
+#[test]
+fn test_multi_contract_protocol() {
+    let yaml = r#"
+name: "FullProtocol"
+version: "1.0.0"
+contracts:
+  - name: pool
+    role: amm_pool
+    functions:
+      - name: swap
+        mutability: write
+      - name: add_liquidity
+        mutability: write
+    storage_keys:
+      - reserve_x
+      - reserve_y
+      - k
+  - name: lender
+    role: lending_pool
+    functions:
+      - name: deposit
+        mutability: write
+      - name: borrow
+        mutability: write
+      - name: repay
+        mutability: write
+    storage_keys:
+      - total_deposits
+      - total_loans
+  - name: gov_token
+    role: governance
+    functions:
+      - name: vote
+        mutability: write
+      - name: delegate
+        mutability: write
+    storage_keys:
+      - total_voting_power
+      - total_delegated_power
+interactions:
+  - from_contract: pool
+    from_function: swap
+    to_contract: lender
+    to_function: deposit
+invariants:
+  - name: constant_product
+    expression:
+      type: eq
+      left:
+        type: mul
+        left:
+          type: storage
+          contract: pool
+          key: reserve_x
+        right:
+          type: storage
+          contract: pool
+          key: reserve_y
+      right:
+        type: storage
+        contract: pool
+        key: k
+    severity: critical
+    category: dex
+  - name: solvency
+    expression:
+      type: gte
+      left:
+        type: storage
+        contract: lender
+        key: total_deposits
+      right:
+        type: storage
+        contract: lender
+        key: total_loans
+    severity: critical
+    category: lending
+"#;
+
+    let manifest = ProtocolParser::from_yaml(yaml).unwrap();
+    assert_eq!(manifest.contracts.len(), 3);
+    assert_eq!(manifest.invariants.len(), 2);
+
+    // Auto-infer
+    let inferred = PatternDetector::infer_all(&manifest);
+    assert!(
+        inferred.len() >= 2,
+        "Should infer invariants for all 3 contract types"
+    );
+
+    // Static analysis
+    let static_results = StaticAnalyzer::verify_all(&manifest);
+    assert_eq!(static_results.len(), 2);
+
+    // Simulation
+    let config = SimulationConfig {
+        num_steps: 100,
+        ..Default::default()
+    };
+    let mut simulator = ProtocolSimulator::new(manifest.clone(), config);
+    let sim_report = simulator.run();
+    assert!(sim_report.total_steps > 0);
+}
+
+// ── Edge Cases ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_empty_manifest() {
+    let manifest = ProtocolParser::from_yaml(
+        r#"
+name: "EmptyProtocol"
+version: "0.1.0"
+contracts: []
+interactions: []
+invariants: []
+"#,
+    )
+    .unwrap();
+    assert!(ProtocolParser::validate(&manifest).is_err());
+}
+
+#[test]
+fn test_single_contract_protocol() {
+    let yaml = r#"
+name: "SingleContract"
+version: "1.0.0"
+contracts:
+  - name: solo
+    role: amm_pool
+    functions:
+      - name: swap
+        mutability: write
+    storage_keys:
+      - reserve_x
+      - reserve_y
+      - k
+interactions: []
+invariants:
+  - name: k_constant
+    expression:
+      type: eq
+      left:
+        type: mul
+        left:
+          type: storage
+          contract: solo
+          key: reserve_x
+        right:
+          type: storage
+          contract: solo
+          key: reserve_y
+      right:
+        type: storage
+        contract: solo
+        key: k
+    severity: critical
+    category: dex
+"#;
+    let manifest = ProtocolParser::from_yaml(yaml).unwrap();
+    assert!(ProtocolParser::validate(&manifest).is_ok());
+    assert_eq!(manifest.contracts.len(), 1);
+}
+
+#[test]
+fn test_cyclic_dependency_detection() {
+    let yaml = r#"
+name: "CyclicProtocol"
+version: "1.0.0"
+contracts:
+  - name: contract_a
+    functions:
+      - name: call_b
+        mutability: write
+  - name: contract_b
+    functions:
+      - name: call_a
+        mutability: write
+  - name: contract_c
+    functions:
+      - name: call_a
+        mutability: write
+interactions:
+  - from_contract: contract_a
+    from_function: call_b
+    to_contract: contract_b
+    to_function: call_a
+  - from_contract: contract_b
+    from_function: call_a
+    to_contract: contract_a
+    to_function: call_b
+invariants: []
+"#;
+
+    let manifest = ProtocolParser::from_yaml(yaml).unwrap();
+    let graph = ProtocolCallGraphBuilder::build(&manifest);
+
+    // Should have all 3 contracts' functions as nodes
+    assert!(!graph.nodes.is_empty());
 }

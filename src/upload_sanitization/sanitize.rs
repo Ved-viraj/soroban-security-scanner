@@ -34,21 +34,12 @@ pub struct SanitizationResult {
 }
 
 /// The sanitization pipeline
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SanitizationPipeline {
     /// The SEI interface to validate against
     pub sei_interface: SorobanContractInterface,
     /// Path to custom SEI interface file (optional)
     pub sei_interface_path: Option<String>,
-}
-
-impl Default for SanitizationPipeline {
-    fn default() -> Self {
-        Self {
-            sei_interface: SorobanContractInterface::default(),
-            sei_interface_path: None,
-        }
-    }
 }
 
 impl SanitizationPipeline {

@@ -4,7 +4,6 @@
 //! monitoring intervals, and alert thresholds.
 
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 /// Configuration for the database connection pool
 #[derive(Debug, Clone, Serialize, Deserialize)]
