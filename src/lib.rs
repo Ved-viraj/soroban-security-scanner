@@ -99,8 +99,6 @@ pub mod protocol_analysis;
 // fixed incrementally. Enable "broken-modules" feature to include them.
 
 #[cfg(feature = "broken-modules")]
-pub mod address_filter;
-#[cfg(feature = "broken-modules")]
 pub mod analysis;
 #[cfg(feature = "broken-modules")]
 pub mod audit_proof_of_scan;
@@ -110,6 +108,8 @@ pub mod batch_operations;
 pub mod config;
 #[cfg(feature = "broken-modules")]
 pub mod database;
+#[cfg(feature = "broken-modules")]
+pub mod db_pool;
 #[cfg(feature = "broken-modules")]
 pub mod differential_fuzzing;
 #[cfg(feature = "broken-modules")]
@@ -121,6 +121,8 @@ pub mod event_logging;
 #[cfg(feature = "broken-modules")]
 pub mod gas_limits;
 #[cfg(feature = "broken-modules")]
+pub mod incremental_scan;
+#[cfg(feature = "broken-modules")]
 pub mod invariants;
 #[cfg(feature = "broken-modules")]
 pub mod kubernetes;
@@ -128,6 +130,8 @@ pub mod kubernetes;
 pub mod multisig;
 #[cfg(feature = "broken-modules")]
 pub mod notification_service;
+#[cfg(feature = "broken-modules")]
+pub mod protocol_analysis;
 #[cfg(feature = "broken-modules")]
 pub mod rate_limiting;
 #[cfg(feature = "broken-modules")]
@@ -143,9 +147,19 @@ pub mod security_analyzer;
 #[cfg(feature = "broken-modules")]
 pub mod session;
 #[cfg(feature = "broken-modules")]
+pub mod storage_safety;
+#[cfg(feature = "broken-modules")]
 pub mod time_travel_debugger;
 #[cfg(feature = "broken-modules")]
+pub mod upload_sanitization;
+#[cfg(feature = "broken-modules")]
 pub mod wallet;
+
+// Economic exploit simulation framework (#444).
+// Models DeFi protocols and searches for profitable attack sequences:
+// flash loans, oracle manipulation, and MEV detection.
+#[cfg(feature = "broken-modules")]
+pub mod economic_security;
 
 #[cfg(feature = "broken-modules")]
 #[cfg(test)]
@@ -164,6 +178,8 @@ pub use batch_operations::{
 };
 #[cfg(feature = "broken-modules")]
 pub use config::ScannerConfig;
+#[cfg(feature = "broken-modules")]
+pub use db_pool::{DbPool, DbPoolConfig, PoolMonitor};
 #[cfg(feature = "broken-modules")]
 pub use differential_fuzzing::{
     DifferentialFuzzer, DifferentialFuzzingConfig, DifferentialFuzzingReport, DiscrepancyDetector,
@@ -184,6 +200,11 @@ pub use notification_service::{
     DeliveryStatus, DeliveryTracker, InMemoryBackend, NotificationChannel, NotificationMessage,
     NotificationPriority, NotificationProvider, NotificationResult, NotificationService,
     NotificationServiceTrait, NotificationTemplate, Recipient, StorageBackend, TemplateManager,
+};
+#[cfg(feature = "broken-modules")]
+pub use protocol_analysis::{
+    dashboard::ProtocolHealth, manifest::ProtocolManifest, InvariantKind, ProtocolInvariant,
+    ProtocolVerificationReport, VerificationStatus,
 };
 #[cfg(feature = "broken-modules")]
 pub use rate_limiting::{
@@ -208,8 +229,32 @@ pub use time_travel_debugger::{
     TimeTravelDebugger, UpgradeSimulationResult,
 };
 #[cfg(feature = "broken-modules")]
+pub use upload_sanitization::{
+    SanitizationPipeline, SignatureValidationResult, SorobanContractInterface,
+};
+#[cfg(feature = "broken-modules")]
 pub use wallet::{
     CreateWalletRequest, ImportWalletRequest, InMemoryWalletStore, RestoreWalletRequest, Wallet,
     WalletBalance, WalletError, WalletExport, WalletService, WalletStatus, WalletStore,
     WalletSyncRecord, WalletType,
+};
+
+#[cfg(feature = "broken-modules")]
+pub use economic_security::{
+    attack_agent::{AgentObjective, AttackAgent, AttackCapability},
+    defi_primitives::{
+        ConstantProductAmm, DeFiPrimitive, DeFiPrimitiveType, LendingPool, LiquidityPool, Oracle,
+        OracleType, StakingRewards, StateChange, TwapOracle,
+    },
+    flash_loan::{FlashLoanAttack, FlashLoanScenario, FlashLoanSimulator},
+    mev_detection::{MevDetector, MevOpportunity, MevType, SandwichAttack, TransactionOrder},
+    oracle_detection::{OracleManipulationDetector, OracleManipulationScenario, PriceDeviation},
+    profitability::{
+        ExploitDifficulty, ExploitProfitability, ProfitabilityAnalyzer, ProfitabilityScore,
+    },
+    report::{AttackSequence, EconomicExploitReport, EconomicExploitSummary, EconomicFinding},
+    search_engine::{
+        BeamSearch, GeneticAlgorithm, MonteCarloTreeSearch, SearchAlgorithm, SearchConfig,
+        SearchResult, TransactionSequence,
+    },
 };

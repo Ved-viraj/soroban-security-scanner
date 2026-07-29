@@ -1,6 +1,5 @@
 //! Main scanner implementations for security and invariant checking
 
-use crate::analysis::AnalysisResult;
 use crate::emergency_stop::{EmergencyStop, ScanWatchdog};
 use crate::invariants::InvariantRule;
 use crate::vulnerabilities::VulnerabilityType;
@@ -8,6 +7,7 @@ use crate::{ScanResult, Severity};
 use anyhow::Result;
 use log::{info, warn};
 use regex::Regex;
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use syn::{Expr, ExprCall, ExprMethodCall, ExprPath, Item, ItemEnum, ItemFn, ItemStruct};
@@ -434,6 +434,35 @@ impl SecurityScanner {
         self.watchdog.stop_monitoring();
         Ok(results)
     }
+
+    /// Scan only a specific subset of files (used for incremental scanning).
+    pub fn scan_directory_incremental(
+        &self,
+        dir_path: &Path,
+        files_to_scan: &HashSet<String>,
+    ) -> Result<Vec<ScanResult>> {
+        let mut results = Vec::new();
+
+        self.watchdog.start_monitoring();
+        self.watchdog.reset();
+
+        for relative_path in files_to_scan {
+            if self.emergency_stop.is_stopped() || self.watchdog.has_timed_out() {
+                info!("Incremental scan cancelled due to emergency stop or watchdog timeout");
+                break;
+            }
+
+            let full_path = dir_path.join(relative_path);
+            if full_path.exists() && full_path.extension().map_or(false, |ext| ext == "rs") {
+                if let Ok(result) = self.scan_file(&full_path) {
+                    results.push(result);
+                }
+            }
+        }
+
+        self.watchdog.stop_monitoring();
+        Ok(results)
+    }
 }
 
 impl InvariantScanner {
@@ -602,6 +631,35 @@ impl InvariantScanner {
 
             if path.extension().map_or(false, |ext| ext == "rs") {
                 if let Ok(result) = self.scan_file(path) {
+                    results.push(result);
+                }
+            }
+        }
+
+        self.watchdog.stop_monitoring();
+        Ok(results)
+    }
+
+    /// Scan only a specific subset of files (used for incremental scanning).
+    pub fn scan_directory_incremental(
+        &self,
+        dir_path: &Path,
+        files_to_scan: &HashSet<String>,
+    ) -> Result<Vec<ScanResult>> {
+        let mut results = Vec::new();
+
+        self.watchdog.start_monitoring();
+        self.watchdog.reset();
+
+        for relative_path in files_to_scan {
+            if self.emergency_stop.is_stopped() || self.watchdog.has_timed_out() {
+                info!("Incremental invariant scan cancelled due to emergency stop or watchdog timeout");
+                break;
+            }
+
+            let full_path = dir_path.join(relative_path);
+            if full_path.exists() && full_path.extension().map_or(false, |ext| ext == "rs") {
+                if let Ok(result) = self.scan_file(&full_path) {
                     results.push(result);
                 }
             }

@@ -22,6 +22,7 @@ argon2 = "0.5"
 ring = "0.17"
 base64 = "0.21"
 sha2 = "0.10"
+hmac = "0.12"
 hex = "0.4"
 rand = "0.8"
 
@@ -50,7 +51,7 @@ url = "2.5"
 lettre = "0.11"
 
 # SMS provider dependencies (Twilio)
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "blocking"] }
 
 # Template engine
 handlebars = "6.0"
@@ -59,12 +60,16 @@ handlebars = "6.0"
 anyhow = "1.0"
 thiserror = "1.0"
 
+# YAML support for protocol manifests
+serde_yaml = "0.9"
+
 # Transaction processing dependencies
 zstd = "0.13"
 regex = "1.10"
 
 # Configuration
 config = "0.13"
+walkdir = "2.4"
 
 # Logging
 tracing = "0.1"
@@ -78,6 +83,10 @@ redis = { version = "0.23", features = ["tokio-comp"], optional = true }
 
 # Rate limiting dependencies
 ipnetwork = "0.20"
+
+# AST parsing and code generation (used by scanners)
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
 
 # Additional utilities
 log = "0.4"
@@ -93,6 +102,7 @@ indexmap = { version = "2", features = ["serde"] }
 [dev-dependencies]
 tokio-test = "0.4"
 mockall = "0.11"
+tempfile = "3.8"
 
 [features]
 default = []

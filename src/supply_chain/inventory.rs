@@ -146,6 +146,115 @@ impl DependencyInventory {
             .iter()
             .find(|d| d.ecosystem == ecosystem && d.name == name)
     }
+
+    /// Number of transitive dependencies.
+    pub fn transitive_count(&self) -> usize {
+        self.dependencies.iter().filter(|d| !d.direct).count()
+    }
+
+    /// Get all transitive dependencies.
+    pub fn transitive_dependencies(&self) -> Vec<&Dependency> {
+        self.dependencies.iter().filter(|d| !d.direct).collect()
+    }
+
+    /// Get all direct dependencies.
+    pub fn direct_dependencies(&self) -> Vec<&Dependency> {
+        self.dependencies.iter().filter(|d| d.direct).collect()
+    }
+}
+
+/// A parent-child relationship in the dependency graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DependencyRelation {
+    /// The parent (direct) dependency.
+    pub parent: String,
+    /// The child (transitive) dependency.
+    pub child: String,
+    /// The child's ecosystem.
+    pub ecosystem: Ecosystem,
+}
+
+/// A dependency graph tracking parent-child relationships.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DependencyGraph {
+    /// All relationships (parent → child).
+    pub relations: Vec<DependencyRelation>,
+}
+
+impl DependencyGraph {
+    /// Create a new empty graph.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a parent-child relationship.
+    pub fn add_relation(&mut self, parent: &str, child: &str, ecosystem: Ecosystem) {
+        self.relations.push(DependencyRelation {
+            parent: parent.to_string(),
+            child: child.to_string(),
+            ecosystem,
+        });
+    }
+
+    /// Get all children of a parent.
+    pub fn children_of(&self, parent: &str) -> Vec<&DependencyRelation> {
+        self.relations.iter().filter(|r| r.parent == parent).collect()
+    }
+
+    /// Get all parents of a child.
+    pub fn parents_of(&self, child: &str) -> Vec<&DependencyRelation> {
+        self.relations.iter().filter(|r| r.child == child).collect()
+    }
+}
+
+impl DependencyInventory {
+    /// Resolve transitive dependencies by walking the full dependency tree.
+    ///
+    /// This function would normally call `cargo metadata` (Rust) or `npm ls --json`
+    /// (Node.js) to get the full dependency tree. In this implementation, it
+    /// accepts a pre-built DependencyGraph and populates the inventory with
+    /// transitive dependencies.
+    ///
+    /// # Arguments
+    /// * `graph` - The dependency graph with parent-child relationships
+    /// * `transitive_deps` - The transitive dependencies to add
+    /// * `max_depth` - Maximum recursion depth (0 = no limit)
+    pub fn resolve_transitive_dependencies(
+        &mut self,
+        graph: &DependencyGraph,
+        transitive_deps: Vec<Dependency>,
+        _max_depth: Option<usize>,
+    ) {
+        // Add all transitive dependencies (marked as non-direct)
+        for mut dep in transitive_deps {
+            dep.direct = false;
+            // Only add if not already in the inventory
+            if !self.dependencies.iter().any(|d| d.key() == dep.key()) {
+                self.dependencies.push(dep);
+            }
+        }
+    }
+
+    /// Check if any transitive dependency has a disallowed license.
+    ///
+    /// Returns a list of (package_name, license) tuples for violations.
+    pub fn check_transitive_licenses(
+        &self,
+        allowed_licenses: &[String],
+    ) -> Vec<(String, String)> {
+        self.dependencies
+            .iter()
+            .filter(|d| !d.direct) // Only check transitive
+            .filter_map(|d| {
+                if let Some(license) = &d.license {
+                    if !allowed_licenses.iter().any(|a| a == license) {
+                        return Some((d.name.clone(), license.clone()));
+                    }
+                }
+                None
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

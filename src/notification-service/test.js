@@ -1,4 +1,5 @@
 //! Test suite for the notification service
+/* eslint-disable no-console */
 
 const {
   NotificationService,

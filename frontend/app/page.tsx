@@ -33,7 +33,8 @@ type View =
   | 'time-travel'
   | 'batch'
   | 'balance'
-  | 'multisig';
+  | 'multisig'
+  | 'csp';
 
 interface Bounty {
   id: string;
@@ -90,6 +91,11 @@ const SettingsPanel = dynamic(() => import('../components/SettingsPanel'), {
 });
 
 const MultiSigWizard = dynamic(() => import('../components/MultiSigWizard'), {
+  loading: () => <div className="skeleton h-96 w-full rounded-lg" />,
+  ssr: false,
+});
+
+const CspDashboard = dynamic(() => import('../components/CspDashboard'), {
   loading: () => <div className="skeleton h-96 w-full rounded-lg" />,
   ssr: false,
 });
@@ -169,6 +175,7 @@ export default function App() {
     { name: 'Leaderboard', view: 'leaderboard' as View, icon: Trophy },
     { name: 'Analytics', view: 'analytics' as View, icon: BarChart3 },
     { name: 'Wallet', view: 'balance' as View, icon: Wallet },
+    { name: 'CSP', view: 'csp' as View, icon: Shield },
     { name: 'Settings', view: 'settings' as View, icon: Settings },
   ];
 
@@ -259,6 +266,14 @@ export default function App() {
           <SectionErrorBoundary context={{ tab: 'settings' }}>
             <Suspense fallback={<div className="skeleton h-96 w-full rounded-lg" />}>
               <SettingsPanel />
+            </Suspense>
+          </SectionErrorBoundary>
+        );
+      case 'csp':
+        return (
+          <SectionErrorBoundary context={{ tab: 'csp' }}>
+            <Suspense fallback={<div className="skeleton h-96 w-full rounded-lg" />}>
+              <CspDashboard />
             </Suspense>
           </SectionErrorBoundary>
         );

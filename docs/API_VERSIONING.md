@@ -254,7 +254,152 @@ assert!(result.is_err()); // ✅ blocked by lifecycle policy
 
 ---
 
-## 12. References
+## 13. Webhook Security
+
+All deprecation notification webhooks sent to subscriber URLs are signed
+with HMAC-SHA256 to prevent spoofing and tampering. This follows the
+well-established pattern used by Stripe, GitHub, and Slack.
+
+### How signing works
+
+1. Each subscriber receives a unique 64-character hex-encoded signing
+   secret at registration time. This secret is only displayed once and
+   is never stored in plaintext in logs.
+2. Every outbound webhook payload includes:
+   - `X-Soroban-Signature: t=<unix_timestamp>,v1=<hex-signature>`
+   - `X-Soroban-Webhook-Id: <uuid>` (unique per delivery, for replay prevention)
+3. The signature is computed as:
+   ```
+   HMAC-SHA256(secret, "<timestamp>.<JSON body>")
+   ```
+
+### Verifying signatures (subscriber side)
+
+**TypeScript/Node.js:**
+
+```typescript
+import crypto from 'crypto';
+
+function verifySignature(
+  body: string,
+  signatureHeader: string,
+  secret: string,
+  toleranceSeconds = 300
+): boolean {
+  const parts: Record<string, string> = {};
+  for (const part of signatureHeader.split(',')) {
+    const [key, value] = part.split('=');
+    parts[key] = value;
+  }
+
+  const timestamp = parseInt(parts['t'], 10);
+  const providedSig = parts['v1'];
+
+  if (!timestamp || !providedSig) return false;
+
+  // Check timestamp tolerance
+  if (Math.abs(Date.now() / 1000 - timestamp) > toleranceSeconds) {
+    return false;
+  }
+
+  // Recompute expected signature
+  const signedPayload = `${timestamp}.${body}`;
+  const expectedSig = crypto
+    .createHmac('sha256', secret)
+    .update(signedPayload)
+    .digest('hex');
+
+  // Constant-time comparison
+  if (expectedSig.length !== providedSig.length) return false;
+  return crypto.timingSafeEqual(
+    Buffer.from(expectedSig),
+    Buffer.from(providedSig)
+  );
+}
+```
+
+**Python:**
+
+```python
+import hmac
+import hashlib
+import time
+
+def verify_signature(
+    body: bytes,
+    signature_header: str,
+    secret: str,
+    tolerance_seconds: int = 300
+) -> bool:
+    parts = {}
+    for part in signature_header.split(','):
+        key, value = part.split('=', 1)
+        parts[key] = value
+
+    timestamp = int(parts.get('t', '0'))
+    provided_sig = parts.get('v1', '')
+
+    if not timestamp or not provided_sig:
+        return False
+
+    # Check timestamp tolerance
+    if abs(int(time.time()) - timestamp) > tolerance_seconds:
+        return False
+
+    # Recompute expected signature
+    signed_payload = f"{timestamp}.".encode() + body
+    expected_sig = hmac.new(
+        secret.encode(),
+        signed_payload,
+        hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(expected_sig, provided_sig)
+```
+
+### Test webhook endpoint
+
+Use `POST /api/v1/admin/notifications/test-webhook` to send a signed test
+payload to a subscriber's URL so they can verify their verification
+implementation:
+
+```bash
+curl -X POST https://api.example.com/api/v1/admin/notifications/test-webhook \
+  -H "Content-Type: application/json" \
+  -d '{"subscriber_id": "<subscriber-id>"}'
+```
+
+The subscriber will receive a signed webhook with a test payload containing
+the event type `webhook.test` and a timestamp.
+
+### Replay prevention
+
+Each webhook delivery includes a unique `X-Soroban-Webhook-Id` header.
+Subscribers should track received IDs and reject any duplicate within a
+configurable window (recommended: 24 hours). The `WebhookSubscriber` struct
+internally tracks delivered IDs and will detect replays.
+
+### Subscribing to webhooks
+
+```bash
+curl -X POST https://api.example.com/api/v1/admin/notifications/subscribe \
+  -H "Content-Type: application/json" \
+  -d '{"version": "v1", "channels": ["webhook"], "webhook_url": "https://hooks.example.com/deprecation"}'
+```
+
+The response includes the signing secret (shown once):
+
+```json
+{
+  "subscriber_id": "550e8400-e29b-41d4-a716-446655440000",
+  "signing_secret": "a1b2c3d4e5f6...",
+  "webhook_url": "https://hooks.example.com/deprecation"
+}
+```
+
+---
+
+## 14. References
 
 - Module: [`src/api_versioning`](../../src/api_versioning)
 - Tests: [`tests/api_versioning_tests.rs`](../../tests/api_versioning_tests.rs)

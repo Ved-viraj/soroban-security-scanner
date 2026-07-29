@@ -34,6 +34,20 @@ pub struct Sbom {
     pub format: String,
     /// The components.
     pub components: Vec<SbomComponent>,
+    /// Dependency relationships (DEPENDENCY_OF links for transitive deps).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub relationships: Vec<SbomRelationship>,
+}
+
+/// A relationship between SBOM components (e.g., transitive dependency).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SbomRelationship {
+    /// The parent component (direct dependency).
+    pub source: String,
+    /// The child component (transitive dependency).
+    pub target: String,
+    /// Relationship type (e.g., "DEPENDENCY_OF").
+    pub relation_type: String,
 }
 
 impl Sbom {
@@ -58,6 +72,30 @@ impl Sbom {
         Self {
             format: "CycloneDX-1.5".to_string(),
             components,
+            relationships: Vec::new(),
+        }
+    }
+
+    /// Generates an SBOM from the inventory including transitive dependencies
+    /// with DEPENDENCY_OF relationships linking each transitive dependency
+    /// to its parent.
+    pub fn from_inventory_with_transitives(
+        inventory: &DependencyInventory,
+        graph: &crate::supply_chain::inventory::DependencyGraph,
+    ) -> Self {
+        let mut sbom = Self::from_inventory(inventory);
+
+        // Add DEPENDENCY_OF relationships for transitive dependencies
+        for relation in &graph.relations {
+            sbom.relationships.push(SbomRelationship {
+                source: relation.parent.clone(),
+                target: relation.child.clone(),
+                relation_type: "DEPENDENCY_OF".to_string(),
+            });
+        }
+
+        sbom
+    }
         }
     }
 
