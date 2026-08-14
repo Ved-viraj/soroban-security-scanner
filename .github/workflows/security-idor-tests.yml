@@ -3,18 +3,8 @@ name: IDOR Security Tests
 on:
   push:
     branches: [main, master, develop]
-    paths:
-      - 'src/scan_access_control.rs'
-      - 'src/scan_access_control_tests.rs'
-      - 'src/lib.rs'
-      - 'src/event_logging.rs'
   pull_request:
     branches: [main, master, develop]
-    paths:
-      - 'src/scan_access_control.rs'
-      - 'src/scan_access_control_tests.rs'
-      - 'src/lib.rs'
-      - 'src/event_logging.rs'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -56,7 +46,6 @@ jobs:
           echo "✅ Module compiles cleanly"
 
       - name: Run full test suite
-        if: github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
         run: |
           echo "🧪 Running full test suite..."
           cargo test --lib

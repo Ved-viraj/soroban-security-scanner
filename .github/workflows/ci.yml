@@ -16,50 +16,7 @@ env:
   RUST_VERSION: 'stable'
 
 jobs:
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      backend: ${{ steps.changes.outputs.backend_any_changed }}
-      frontend: ${{ steps.changes.outputs.frontend_any_changed }}
-      contracts: ${{ steps.changes.outputs.contracts_any_changed }}
-      component_library: ${{ steps.changes.outputs.component_library_any_changed }}
-      root: ${{ steps.changes.outputs.root_any_changed }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Detect changed files
-        id: changes
-        uses: tj-actions/changed-files@v44
-        with:
-          files_yaml: |
-            backend:
-              - 'src/**/*.rs'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'src/**/*.js'
-              - 'package.json'
-              - 'package-lock.json'
-            frontend:
-              - 'frontend/**'
-            contracts:
-              - 'contracts/**'
-            component_library:
-              - 'component-library/**'
-            root:
-              - '.github/workflows/**'
-              - '.eslintrc*'
-              - '.prettier*'
-              - 'package.json'
-              - 'package-lock.json'
-              - 'jest.config.js'
-
   contracts:
-    needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.contracts == 'true' ||
-      needs.detect-changes.outputs.root == 'true' ||
-      github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -88,11 +45,6 @@ jobs:
         run: cargo build --target wasm32v1-none --release
 
   backend:
-    needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.backend == 'true' ||
-      needs.detect-changes.outputs.root == 'true' ||
-      github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -114,11 +66,6 @@ jobs:
         run: cargo test --lib
 
   node-backend:
-    needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.backend == 'true' ||
-      needs.detect-changes.outputs.root == 'true' ||
-      github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -137,12 +84,6 @@ jobs:
         run: npm test
 
   frontend:
-    needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.frontend == 'true' ||
-      needs.detect-changes.outputs.component_library == 'true' ||
-      needs.detect-changes.outputs.root == 'true' ||
-      github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -168,11 +109,6 @@ jobs:
         run: npm run build
 
   component-library:
-    needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.component_library == 'true' ||
-      needs.detect-changes.outputs.root == 'true' ||
-      github.ref_name == 'main' || github.ref_name == 'master' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     defaults:
       run:
