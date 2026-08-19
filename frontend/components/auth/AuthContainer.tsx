@@ -6,6 +6,7 @@ import SignUpForm from './SignUpForm';
 import PasswordResetForm from './PasswordResetForm';
 import MultiFactorAuth from './MultiFactorAuth';
 import { AlertCircle, CheckCircle } from 'lucide-react';
+import { persistSession } from '../../lib/auth/session';
 
 type AuthView = 'login' | 'signup' | 'reset-password' | 'mfa';
 
@@ -24,6 +25,7 @@ export default function AuthContainer({
   const [success, setSuccess] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState('');
   const [userPhone, setUserPhone] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
 
   const clearMessages = () => {
     setError(null);
@@ -111,6 +113,7 @@ export default function AuthContainer({
   }) => {
     clearMessages();
     setIsLoading(true);
+    setRememberMe(credentials.rememberMe);
 
     try {
       const result = await mockLogin(credentials);
@@ -119,6 +122,7 @@ export default function AuthContainer({
         setCurrentView('mfa');
         handleSuccess('Login successful! Please complete two-factor authentication.');
       } else {
+        persistSession(result.user, credentials.rememberMe);
         handleSuccess('Login successful!');
         onAuthSuccess?.(result.user);
       }
@@ -172,8 +176,10 @@ export default function AuthContainer({
 
     try {
       const result = await mockVerifyMfa(code, method);
+      const user = { email: userEmail, verified: true };
+      persistSession(user, rememberMe);
       handleSuccess('Authentication successful!');
-      onAuthSuccess?.({ email: userEmail, verified: true });
+      onAuthSuccess?.(user);
     } catch (err) {
       handleError(err instanceof Error ? err.message : 'Verification failed');
     } finally {

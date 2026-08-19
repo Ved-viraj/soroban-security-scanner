@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import SimpleAuth, { LoginData, SignUpData } from '../../components/auth/SimpleAuth';
+import { persistSession } from '../../lib/auth/session';
 
 export default function SimpleAuthPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -16,6 +17,7 @@ export default function SimpleAuthPage() {
 
     // Mock validation
     if (data.email === 'demo@example.com' && data.password === 'password123') {
+      persistSession({ email: data.email }, data.rememberMe);
       console.log('Login successful');
       // In a real app, redirect to dashboard
     } else {
