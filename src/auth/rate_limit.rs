@@ -58,6 +58,12 @@ impl InMemoryRateLimitStore {
     }
 }
 
+impl Default for InMemoryRateLimitStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait::async_trait]
 impl RateLimitStore for InMemoryRateLimitStore {
     async fn get_record(&self, key: &str) -> Result<Option<RateLimitRecord>, RateLimitError> {
@@ -91,19 +97,22 @@ impl RateLimitStore for InMemoryRateLimitStore {
             .records
             .write()
             .map_err(|e| RateLimitError::Storage(e.to_string()))?;
-        
+
         let now = Utc::now();
         let mut count = 0;
-        
+
         records.retain(|_, record| {
-            let should_keep = record.requests.iter().any(|&req| req > now - Duration::seconds(3600)) ||
-                             record.blocked_until.map_or(false, |blocked| blocked > now);
+            let should_keep = record
+                .requests
+                .iter()
+                .any(|&req| req > now - Duration::seconds(3600))
+                || record.blocked_until.is_some_and(|blocked| blocked > now);
             if !should_keep {
                 count += 1;
             }
             should_keep
         });
-        
+
         Ok(count)
     }
 }
@@ -162,7 +171,7 @@ impl RateLimitStore for RedisRateLimitStore {
             .map_err(|e| RateLimitError::Serialization(e.to_string()))?;
 
         let record_key = self.record_key(&record.key);
-        
+
         // Set with TTL of 1 hour
         conn.set_ex(&record_key, record_json, 3600)
             .await
@@ -205,7 +214,11 @@ impl<S: RateLimitStore> RateLimitService<S> {
         }
     }
 
-    pub fn add_config(&mut self, name: &str, config: RateLimitConfig) -> Result<(), RateLimitError> {
+    pub fn add_config(
+        &mut self,
+        name: &str,
+        config: RateLimitConfig,
+    ) -> Result<(), RateLimitError> {
         if config.max_requests == 0 || config.window_seconds == 0 {
             return Err(RateLimitError::InvalidConfig(
                 "max_requests and window_seconds must be greater than 0".to_string(),
@@ -220,10 +233,9 @@ impl<S: RateLimitStore> RateLimitService<S> {
         key: &str,
         config_name: &str,
     ) -> Result<RateLimitResult, RateLimitError> {
-        let config = self
-            .configs
-            .get(config_name)
-            .ok_or_else(|| RateLimitError::InvalidConfig(format!("Config '{}' not found", config_name)))?;
+        let config = self.configs.get(config_name).ok_or_else(|| {
+            RateLimitError::InvalidConfig(format!("Config '{}' not found", config_name))
+        })?;
 
         let now = Utc::now();
         let window_start = now - Duration::seconds(config.window_seconds as i64);
@@ -264,7 +276,7 @@ impl<S: RateLimitStore> RateLimitService<S> {
             if let Some(penalty_seconds) = config.penalty_seconds {
                 record.blocked_until = Some(now + Duration::seconds(penalty_seconds as i64));
                 self.store.save_record(record.clone()).await?;
-                
+
                 return Ok(RateLimitResult {
                     allowed: false,
                     remaining: 0,
@@ -279,7 +291,9 @@ impl<S: RateLimitStore> RateLimitService<S> {
                 remaining: 0,
                 reset_time: record.requests[0] + Duration::seconds(config.window_seconds as i64),
                 total_requests: record.total_requests,
-                retry_after: (record.requests[0] + Duration::seconds(config.window_seconds as i64) - now).num_seconds() as u64,
+                retry_after: (record.requests[0] + Duration::seconds(config.window_seconds as i64)
+                    - now)
+                    .num_seconds() as u64,
             });
         }
 
@@ -302,11 +316,14 @@ impl<S: RateLimitStore> RateLimitService<S> {
         })
     }
 
-    pub async fn get_status(&self, key: &str, config_name: &str) -> Result<RateLimitStatus, RateLimitError> {
-        let config = self
-            .configs
-            .get(config_name)
-            .ok_or_else(|| RateLimitError::InvalidConfig(format!("Config '{}' not found", config_name)))?;
+    pub async fn get_status(
+        &self,
+        key: &str,
+        config_name: &str,
+    ) -> Result<RateLimitStatus, RateLimitError> {
+        let config = self.configs.get(config_name).ok_or_else(|| {
+            RateLimitError::InvalidConfig(format!("Config '{}' not found", config_name))
+        })?;
 
         let now = Utc::now();
         let window_start = now - Duration::seconds(config.window_seconds as i64);
@@ -329,15 +346,23 @@ impl<S: RateLimitStore> RateLimitService<S> {
         };
 
         // Clean old requests outside the window
-        let mut cleaned_requests: Vec<_> = record.requests.iter().filter(|&&req| req > window_start).collect();
+        let cleaned_requests: Vec<_> = record
+            .requests
+            .iter()
+            .filter(|&&req| req > window_start)
+            .collect();
         let current_requests = cleaned_requests.len() as u32;
 
-        let is_blocked = record.blocked_until.map_or(false, |blocked| blocked > now);
-        let remaining = if is_blocked { 0 } else { config.max_requests.saturating_sub(current_requests) };
+        let is_blocked = record.blocked_until.is_some_and(|blocked| blocked > now);
+        let remaining = if is_blocked {
+            0
+        } else {
+            config.max_requests.saturating_sub(current_requests)
+        };
         let reset_time = if cleaned_requests.is_empty() {
             now + Duration::seconds(config.window_seconds as i64)
         } else {
-            cleaned_requests[0] + Duration::seconds(config.window_seconds as i64)
+            *cleaned_requests[0] + Duration::seconds(config.window_seconds as i64)
         };
 
         Ok(RateLimitStatus {
@@ -443,8 +468,10 @@ mod tests {
     async fn test_basic_rate_limiting() {
         let store = InMemoryRateLimitStore::new();
         let mut service = RateLimitService::new(store);
-        
-        service.add_config("test", RateLimitConfig::new(3, 60)).unwrap();
+
+        service
+            .add_config("test", RateLimitConfig::new(3, 60))
+            .unwrap();
 
         // First 3 requests should be allowed
         for i in 0..3 {
@@ -463,8 +490,10 @@ mod tests {
     async fn test_rate_limit_reset() {
         let store = InMemoryRateLimitStore::new();
         let mut service = RateLimitService::new(store);
-        
-        service.add_config("test", RateLimitConfig::new(2, 1)).unwrap(); // 2 requests per 1 second
+
+        service
+            .add_config("test", RateLimitConfig::new(2, 1))
+            .unwrap(); // 2 requests per 1 second
 
         // Use up the limit
         service.check_rate_limit("user1", "test").await.unwrap();
@@ -484,8 +513,10 @@ mod tests {
     async fn test_penalty_system() {
         let store = InMemoryRateLimitStore::new();
         let mut service = RateLimitService::new(store);
-        
-        service.add_config("test", RateLimitConfig::new(2, 60).with_penalty(5)).unwrap();
+
+        service
+            .add_config("test", RateLimitConfig::new(2, 60).with_penalty(5))
+            .unwrap();
 
         // Use up the limit
         service.check_rate_limit("user1", "test").await.unwrap();
@@ -501,8 +532,10 @@ mod tests {
     async fn test_different_keys() {
         let store = InMemoryRateLimitStore::new();
         let mut service = RateLimitService::new(store);
-        
-        service.add_config("test", RateLimitConfig::new(2, 60)).unwrap();
+
+        service
+            .add_config("test", RateLimitConfig::new(2, 60))
+            .unwrap();
 
         // Different keys should have independent limits
         service.check_rate_limit("user1", "test").await.unwrap();
@@ -516,8 +549,10 @@ mod tests {
     async fn test_rate_limit_status() {
         let store = InMemoryRateLimitStore::new();
         let mut service = RateLimitService::new(store);
-        
-        service.add_config("test", RateLimitConfig::new(5, 60)).unwrap();
+
+        service
+            .add_config("test", RateLimitConfig::new(5, 60))
+            .unwrap();
 
         // Make a request
         service.check_rate_limit("user1", "test").await.unwrap();

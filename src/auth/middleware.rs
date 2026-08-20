@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::auth::{JwtService, SessionManager, RateLimitService, AccountLockoutService};
+use crate::auth::{
+    AccountLockoutService, JwtService, RateLimitService, SessionManager, SessionStore,
+};
 
 #[derive(Debug, Error)]
 pub enum AuthMiddlewareError {
@@ -70,7 +72,7 @@ impl Default for AuthMiddlewareConfig {
                 "/auth/oauth".to_string(),
                 "/docs".to_string(),
                 "/swagger-ui".to_string(),
-                "/api/v1/public".to_string(),
+                "/api/v1/public*".to_string(),
             ],
             required_permissions: Vec::new(),
             required_roles: Vec::new(),
@@ -83,7 +85,7 @@ impl Default for AuthMiddlewareConfig {
 }
 
 #[derive(Clone)]
-pub struct AuthServices<S> {
+pub struct AuthServices<S: SessionStore> {
     pub jwt_service: Arc<JwtService>,
     pub session_manager: Arc<SessionManager<S>>,
     pub rate_limit_service: Arc<RateLimitService<crate::auth::InMemoryRateLimitStore>>,
@@ -109,14 +111,14 @@ where
     }
 }
 
-pub struct AuthMiddleware<S> {
+pub struct AuthMiddleware<S: SessionStore> {
     services: AuthServices<S>,
     config: AuthMiddlewareConfig,
 }
 
 impl<S> AuthMiddleware<S>
 where
-    S: crate::auth::SessionStore + Send + Sync + 'static,
+    S: SessionStore + Send + Sync + 'static,
 {
     pub fn new(services: AuthServices<S>, config: AuthMiddlewareConfig) -> Self {
         Self { services, config }
@@ -132,7 +134,6 @@ where
         next: Next,
     ) -> Result<Response, StatusCode> {
         let path = request.uri().path();
-        let method = request.method().to_string();
         let ip_address = self.extract_ip_address(&request);
         let user_agent = self.extract_user_agent(&request);
 
@@ -144,8 +145,13 @@ where
         // Apply rate limiting if configured
         if let Some(rate_limit_config) = &self.config.rate_limit_config {
             let rate_limit_key = format!("{}:{}", ip_address.as_deref().unwrap_or("unknown"), path);
-            
-            match self.services.rate_limit_service.check_rate_limit(&rate_limit_key, rate_limit_config).await {
+
+            match self
+                .services
+                .rate_limit_service
+                .check_rate_limit(&rate_limit_key, rate_limit_config)
+                .await
+            {
                 Ok(result) => {
                     if !result.allowed {
                         return Err(StatusCode::TOO_MANY_REQUESTS);
@@ -158,7 +164,10 @@ where
         }
 
         // Extract and validate JWT token
-        let auth_context = match self.extract_and_validate_token(request.headers(), &ip_address, &user_agent).await {
+        let auth_context = match self
+            .extract_and_validate_token(request.headers(), &ip_address, &user_agent)
+            .await
+        {
             Ok(context) => context,
             Err(e) => {
                 return match e {
@@ -186,17 +195,20 @@ where
         }
 
         // Check required roles
-        if !self.config.required_roles.is_empty() {
-            if !self.config.required_roles.contains(&auth_context.role) {
-                return Err(StatusCode::FORBIDDEN);
-            }
+        if !self.config.required_roles.is_empty()
+            && !self.config.required_roles.contains(&auth_context.role)
+        {
+            return Err(StatusCode::FORBIDDEN);
         }
 
         // Check required permissions
         if !self.config.required_permissions.is_empty() {
-            let has_all_permissions = self.config.required_permissions.iter()
+            let has_all_permissions = self
+                .config
+                .required_permissions
+                .iter()
                 .all(|required| auth_context.permissions.contains(required));
-            
+
             if !has_all_permissions {
                 return Err(StatusCode::FORBIDDEN);
             }
@@ -221,30 +233,51 @@ where
             .and_then(|h| h.to_str().ok())
             .ok_or(AuthMiddlewareError::MissingToken)?;
 
-        let token = self.services.jwt_service.extract_token_from_header(auth_header)
-            .ok_or(AuthMiddlewareError::InvalidToken("Invalid Bearer token format".to_string()))?;
+        let token = self
+            .services
+            .jwt_service
+            .extract_token_from_header(auth_header)
+            .ok_or(AuthMiddlewareError::InvalidToken(
+                "Invalid Bearer token format".to_string(),
+            ))?;
 
         // Validate JWT token
-        let claims = self.services.jwt_service.validate_token(&token)
+        let claims = self
+            .services
+            .jwt_service
+            .validate_token(&token)
             .map_err(|e| match e {
                 crate::auth::JwtError::Expired => AuthMiddlewareError::TokenExpired,
-                crate::auth::JwtError::InvalidToken(_) => AuthMiddlewareError::InvalidToken(e.to_string()),
+                crate::auth::JwtError::InvalidToken(_) => {
+                    AuthMiddlewareError::InvalidToken(e.to_string())
+                }
                 _ => AuthMiddlewareError::ServiceError(e.to_string()),
             })?;
 
         // Check account lockout status
-        let lockout_status = self.services.account_lockout_service.check_account_status(&claims.sub).await
+        let lockout_status = self
+            .services
+            .account_lockout_service
+            .check_account_status(&claims.sub)
+            .await
             .map_err(|e| AuthMiddlewareError::ServiceError(e.to_string()))?;
 
         if lockout_status.is_locked || lockout_status.is_permanently_locked {
-            return Err(AuthMiddlewareError::AccountLocked(
-                lockout_status.permanent_lock_reason.unwrap_or_else(|| "Account is locked".to_string())
-            ));
+            let reason = if lockout_status.is_permanently_locked {
+                "Account is permanently locked".to_string()
+            } else {
+                "Account is temporarily locked".to_string()
+            };
+            return Err(AuthMiddlewareError::AccountLocked(reason));
         }
 
         // Validate session if required
         if self.config.session_validation {
-            let session = self.services.session_manager.validate_session(&claims.session_id).await
+            let _session = self
+                .services
+                .session_manager
+                .validate_session(&claims.session_id)
+                .await
                 .map_err(|e| match e {
                     crate::auth::SessionError::NotFound(_) => AuthMiddlewareError::SessionNotFound,
                     crate::auth::SessionError::Expired(_) => AuthMiddlewareError::SessionNotFound,
@@ -253,11 +286,16 @@ where
                 })?;
 
             // Update session with current request info
-            if let Err(e) = self.services.session_manager.update_session_metadata(
-                &claims.session_id,
-                "last_ip",
-                &ip_address.clone().unwrap_or_else(|| "unknown".to_string())
-            ).await {
+            if let Err(e) = self
+                .services
+                .session_manager
+                .update_session_metadata(
+                    &claims.session_id,
+                    "last_ip",
+                    &ip_address.clone().unwrap_or_else(|| "unknown".to_string()),
+                )
+                .await
+            {
                 // Log error but continue processing
                 eprintln!("Failed to update session metadata: {}", e);
             }
@@ -269,10 +307,8 @@ where
             role: claims.role,
             permissions: claims.permissions,
             session_id: claims.session_id,
-            issued_at: chrono::DateTime::from_timestamp(claims.iat, 0)
-                .unwrap_or_else(|| Utc::now()),
-            expires_at: chrono::DateTime::from_timestamp(claims.exp, 0)
-                .unwrap_or_else(|| Utc::now()),
+            issued_at: chrono::DateTime::from_timestamp(claims.iat, 0).unwrap_or_else(Utc::now),
+            expires_at: chrono::DateTime::from_timestamp(claims.exp, 0).unwrap_or_else(Utc::now),
             ip_address: ip_address.clone(),
             user_agent: user_agent.clone(),
         })
@@ -348,7 +384,9 @@ where
 }
 
 // Permission-based middleware
-pub fn require_permissions(permissions: Vec<String>) -> impl Fn(AuthMiddlewareConfig) -> AuthMiddlewareConfig {
+pub fn require_permissions(
+    permissions: Vec<String>,
+) -> impl Fn(AuthMiddlewareConfig) -> AuthMiddlewareConfig {
     move |mut config| {
         config.required_permissions = permissions.clone();
         config
@@ -394,22 +432,33 @@ pub fn has_role(request: &Request, role: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::{JwtService, SessionManager, RateLimitService, AccountLockoutService, InMemorySessionStore, InMemoryRateLimitStore, InMemoryLockoutStore};
+    use crate::auth::{
+        AccountLockoutService, InMemoryLockoutStore, InMemoryRateLimitStore, InMemorySessionStore,
+        JwtService, RateLimitService, SessionData, SessionManager,
+    };
     use axum::{body::Body, http::Method, routing::get, Router};
     use chrono::Duration;
     use tower::ServiceExt;
 
     #[tokio::test]
     async fn test_auth_middleware_with_valid_token() {
-        let jwt_service = JwtService::new("test-secret", "test-issuer".to_string(), "test-audience".to_string());
+        let jwt_service = JwtService::new(
+            "test-secret",
+            "test-issuer".to_string(),
+            "test-audience".to_string(),
+        );
         let session_store = InMemorySessionStore::new();
-        let session_manager = SessionManager::new(session_store, Duration::hours(24));
+        let session_manager = SessionManager::new(session_store.clone(), Duration::hours(24));
         let rate_limit_store = InMemoryRateLimitStore::new();
         let mut rate_limit_service = RateLimitService::new(rate_limit_store);
-        rate_limit_service.add_config("api", crate::auth::RateLimitConfig::api()).unwrap();
+        rate_limit_service
+            .add_config("api", crate::auth::RateLimitConfig::api())
+            .unwrap();
         let lockout_store = InMemoryLockoutStore::new();
-        let account_lockout_service = AccountLockoutService::new(lockout_store);
-        account_lockout_service.add_config("auth", crate::auth::LockoutConfig::moderate()).unwrap();
+        let mut account_lockout_service = AccountLockoutService::new(lockout_store);
+        account_lockout_service
+            .add_config("auth", crate::auth::LockoutConfig::moderate())
+            .unwrap();
 
         let services = AuthServices::new(
             jwt_service.clone(),
@@ -419,21 +468,41 @@ mod tests {
         );
 
         // Generate a valid token
-        let token = jwt_service.generate_token(
-            "user123",
-            "test@example.com",
-            "user",
-            vec!["read".to_string()],
-            1,
-        ).unwrap();
+        let token = jwt_service
+            .generate_token(
+                "user123",
+                "test@example.com",
+                "user",
+                vec!["read".to_string()],
+                1,
+            )
+            .unwrap();
+
+        // Create a matching session so session validation passes
+        let claims = jwt_service.get_token_claims(&token).unwrap();
+        let now = Utc::now();
+        let session_data = SessionData {
+            session_id: claims.session_id.clone(),
+            user_id: "user123".to_string(),
+            user_email: "test@example.com".to_string(),
+            user_role: "user".to_string(),
+            ip_address: Some("127.0.0.1".to_string()),
+            user_agent: Some("Test-Agent".to_string()),
+            created_at: now,
+            last_accessed: now,
+            expires_at: now + Duration::hours(1),
+            is_active: true,
+            metadata: std::collections::HashMap::new(),
+        };
+        session_store.create_session(session_data).await.unwrap();
 
         let app = Router::new()
             .route("/protected", get(|| async { "Protected content" }))
-            .route("/public", get(|| async { "Public content" }))
-            .with_state(services)
+            .route("/health", get(|| async { "Healthy" }))
+            .with_state(services.clone())
             .layer(axum::middleware::from_fn_with_state(
                 services.clone(),
-                auth_middleware
+                auth_middleware,
             ));
 
         // Test protected route with valid token
@@ -450,7 +519,7 @@ mod tests {
         // Test public route without token
         let request = axum::http::Request::builder()
             .method(Method::GET)
-            .uri("/public")
+            .uri("/health")
             .body(Body::empty())
             .unwrap();
 
@@ -460,7 +529,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_middleware_with_invalid_token() {
-        let jwt_service = JwtService::new("test-secret", "test-issuer".to_string(), "test-audience".to_string());
+        let jwt_service = JwtService::new(
+            "test-secret",
+            "test-issuer".to_string(),
+            "test-audience".to_string(),
+        );
         let session_store = InMemorySessionStore::new();
         let session_manager = SessionManager::new(session_store, Duration::hours(24));
         let rate_limit_store = InMemoryRateLimitStore::new();
@@ -477,10 +550,10 @@ mod tests {
 
         let app = Router::new()
             .route("/protected", get(|| async { "Protected content" }))
-            .with_state(services)
+            .with_state(services.clone())
             .layer(axum::middleware::from_fn_with_state(
                 services.clone(),
-                auth_middleware
+                auth_middleware,
             ));
 
         // Test with invalid token
@@ -491,7 +564,7 @@ mod tests {
             .body(Body::empty())
             .unwrap();
 
-        let response = app.oneshot(request).await.unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
         // Test without token
@@ -510,10 +583,19 @@ mod tests {
         let config = AuthMiddlewareConfig::default();
         let middleware = AuthMiddleware::new(
             AuthServices {
-                jwt_service: Arc::new(JwtService::new("test", "test".to_string(), "test".to_string())),
-                session_manager: Arc::new(SessionManager::new(InMemorySessionStore::new(), Duration::hours(24))),
+                jwt_service: Arc::new(JwtService::new(
+                    "test",
+                    "test".to_string(),
+                    "test".to_string(),
+                )),
+                session_manager: Arc::new(SessionManager::new(
+                    InMemorySessionStore::new(),
+                    Duration::hours(24),
+                )),
                 rate_limit_service: Arc::new(RateLimitService::new(InMemoryRateLimitStore::new())),
-                account_lockout_service: Arc::new(AccountLockoutService::new(InMemoryLockoutStore::new())),
+                account_lockout_service: Arc::new(AccountLockoutService::new(
+                    InMemoryLockoutStore::new(),
+                )),
             },
             config,
         );
@@ -530,7 +612,11 @@ mod tests {
             user_id: "user123".to_string(),
             email: "test@example.com".to_string(),
             role: "admin".to_string(),
-            permissions: vec!["read".to_string(), "write".to_string(), "delete".to_string()],
+            permissions: vec![
+                "read".to_string(),
+                "write".to_string(),
+                "delete".to_string(),
+            ],
             session_id: "session123".to_string(),
             issued_at: Utc::now(),
             expires_at: Utc::now() + Duration::hours(1),
@@ -543,7 +629,7 @@ mod tests {
             .uri("/test")
             .body(Body::empty())
             .unwrap();
-        
+
         request.extensions_mut().insert(auth_context);
 
         assert!(has_permission(&request, "read"));

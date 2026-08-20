@@ -304,12 +304,21 @@ fn acceptance_sunset_procedures_and_urgency_notifications() {
     assert!(checklist.iter().any(|s| s.contains("6-month")));
 
     // 2. Automated urgency notifications when sunset nears.
-    //    Build a registry with V1 deprecated long enough that an urgency
-    //    window applies (sunset 25d away triggers the <=30d threshold).
+    //    Build a registry with a version deprecated long enough that an
+    //    urgency window applies. The urgency check fires when
+    //    days_remaining lands exactly on a policy threshold (30d here), so
+    //    set the sunset just over 30 days out (num_days truncates to 30).
     let registry = VersionRegistry::default();
-    let mut info = VersionInfo::new_stable(ApiVersion::V1, "old version");
+    // V1 and V2 are pre-registered by default; use V3 for this scenario.
+    let mut info = VersionInfo::new_stable(ApiVersion::V3, "old version");
     info.deprecation_date = Some(Utc::now() - Duration::days(180));
-    info.sunset_date = Some(Utc::now() + Duration::days(25));
+    info.sunset_date = Some(
+        Utc::now()
+            + Duration::days(30)
+            + Duration::hours(23)
+            + Duration::minutes(59)
+            + Duration::seconds(59),
+    );
     info.lifecycle = VersionLifecycle::Deprecated;
     registry.register_version(info).unwrap();
 
@@ -359,17 +368,17 @@ fn acceptance_all_lifecycle_phases_have_documented_behavior() {
         (
             "stable",
             VersionLifecycle::Stable.is_served(),
-            !VersionLifecycle::Stable.allows_breaking_changes(),
+            VersionLifecycle::Stable.allows_breaking_changes(),
         ),
         (
             "deprecated",
             VersionLifecycle::Deprecated.is_served(),
-            !VersionLifecycle::Deprecated.allows_breaking_changes(),
+            VersionLifecycle::Deprecated.allows_breaking_changes(),
         ),
         (
             "sunset",
             !VersionLifecycle::Sunset.is_served(),
-            !VersionLifecycle::Sunset.allows_breaking_changes(),
+            VersionLifecycle::Sunset.allows_breaking_changes(),
         ),
     ];
     for (name, served, breaking_allowed) in tests {

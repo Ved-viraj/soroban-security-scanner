@@ -3,13 +3,14 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     middleware::Next,
     response::Response,
-    routing::{get, post},
+    routing::get,
     Json, Router,
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
+    str::FromStr,
     sync::{Arc, RwLock},
 };
 use thiserror::Error;
@@ -97,14 +98,13 @@ impl CspPolicyGraduationCheck {
             .cloned()
             .collect::<Vec<_>>();
 
-        let directive_counts = recent
-            .iter()
-            .fold(HashMap::new(), |mut map, violation| {
-                *map.entry(violation.directive.clone()).or_insert(0usize) += 1;
-                map
-            });
+        let directive_counts = recent.iter().fold(HashMap::new(), |mut map, violation| {
+            *map.entry(violation.directive.clone()).or_insert(0usize) += 1;
+            map
+        });
 
-        let safe_to_enforce = recent.is_empty() || (recent.len() <= 2 && directive_counts.len() <= 1);
+        let safe_to_enforce =
+            recent.is_empty() || (recent.len() <= 2 && directive_counts.len() <= 1);
         let reason = if safe_to_enforce {
             "Recent CSP violations are limited and stable; the policy appears ready for enforcement.".to_string()
         } else {
@@ -134,19 +134,33 @@ pub struct LogAlerter;
 
 impl LogAlerter {
     pub fn new() -> Self {
-        Self::default()
+        Self
     }
 
-    pub fn analyze_alerts(&self, current: &[CspViolation], previous: &[CspViolation], _now: DateTime<Utc>) -> Vec<LogAlert> {
-        let previous_directives: HashSet<_> = previous.iter().map(|violation| violation.directive.clone()).collect();
-        let current_directives: HashSet<_> = current.iter().map(|violation| violation.directive.clone()).collect();
+    pub fn analyze_alerts(
+        &self,
+        current: &[CspViolation],
+        previous: &[CspViolation],
+        _now: DateTime<Utc>,
+    ) -> Vec<LogAlert> {
+        let previous_directives: HashSet<_> = previous
+            .iter()
+            .map(|violation| violation.directive.clone())
+            .collect();
+        let current_directives: HashSet<_> = current
+            .iter()
+            .map(|violation| violation.directive.clone())
+            .collect();
         let mut alerts = Vec::new();
 
         if let Some(new_directive) = current_directives.difference(&previous_directives).next() {
             alerts.push(LogAlert {
                 directive: new_directive.clone(),
                 severity: "warning".to_string(),
-                message: format!("New CSP directive {} appears in the latest violations.", new_directive),
+                message: format!(
+                    "New CSP directive {} appears in the latest violations.",
+                    new_directive
+                ),
             });
         }
 
@@ -154,7 +168,8 @@ impl LogAlerter {
             alerts.push(LogAlert {
                 directive: "overall".to_string(),
                 severity: "warning".to_string(),
-                message: "CSP violations spiked sharply compared with the previous window.".to_string(),
+                message: "CSP violations spiked sharply compared with the previous window."
+                    .to_string(),
             });
         }
 
@@ -165,8 +180,14 @@ impl LogAlerter {
 #[async_trait::async_trait]
 pub trait CspViolationStore: Send + Sync {
     async fn record_csp_violation(&self, violation: CspViolation) -> anyhow::Result<()>;
-    async fn query_csp_violations(&self, filter: &CspViolationFilter) -> anyhow::Result<Vec<CspViolation>>;
-    async fn get_csp_dashboard(&self, filter: Option<CspViolationFilter>) -> anyhow::Result<CspDashboardSummary>;
+    async fn query_csp_violations(
+        &self,
+        filter: &CspViolationFilter,
+    ) -> anyhow::Result<Vec<CspViolation>>;
+    async fn get_csp_dashboard(
+        &self,
+        filter: Option<CspViolationFilter>,
+    ) -> anyhow::Result<CspDashboardSummary>;
 }
 
 #[derive(Debug, Default, Clone)]
@@ -179,11 +200,17 @@ impl InMemoryCspViolationStore {
         self.record_csp_violation(violation).await
     }
 
-    pub async fn list_violations(&self, filter: &CspViolationFilter) -> anyhow::Result<Vec<CspViolation>> {
+    pub async fn list_violations(
+        &self,
+        filter: &CspViolationFilter,
+    ) -> anyhow::Result<Vec<CspViolation>> {
         self.query_csp_violations(filter).await
     }
 
-    pub async fn get_dashboard_aggregations(&self, filter: Option<CspViolationFilter>) -> anyhow::Result<CspDashboardSummary> {
+    pub async fn get_dashboard_aggregations(
+        &self,
+        filter: Option<CspViolationFilter>,
+    ) -> anyhow::Result<CspDashboardSummary> {
         self.get_csp_dashboard(filter).await
     }
 }
@@ -199,7 +226,10 @@ impl CspViolationStore for InMemoryCspViolationStore {
         Ok(())
     }
 
-    async fn query_csp_violations(&self, filter: &CspViolationFilter) -> anyhow::Result<Vec<CspViolation>> {
+    async fn query_csp_violations(
+        &self,
+        filter: &CspViolationFilter,
+    ) -> anyhow::Result<Vec<CspViolation>> {
         let violations = self
             .violations
             .read()
@@ -232,16 +262,23 @@ impl CspViolationStore for InMemoryCspViolationStore {
             .cloned()
             .collect();
 
-        filtered.sort_by(|left, right| right.violated_at.cmp(&left.violated_at));
+        filtered.sort_by_key(|entry| std::cmp::Reverse(entry.violated_at));
 
         let page = filter.page.unwrap_or(1).max(1);
         let per_page = filter.per_page.unwrap_or(20).max(1);
         let start = (page - 1) * per_page;
         let end = start + per_page;
-        Ok(filtered.into_iter().skip(start).take(end.saturating_sub(start)).collect())
+        Ok(filtered
+            .into_iter()
+            .skip(start)
+            .take(end.saturating_sub(start))
+            .collect())
     }
 
-    async fn get_csp_dashboard(&self, filter: Option<CspViolationFilter>) -> anyhow::Result<CspDashboardSummary> {
+    async fn get_csp_dashboard(
+        &self,
+        filter: Option<CspViolationFilter>,
+    ) -> anyhow::Result<CspDashboardSummary> {
         let filter = filter.unwrap_or_default();
         let violations = self.query_csp_violations(&filter).await?;
         let mut directives: HashMap<String, usize> = HashMap::new();
@@ -251,8 +288,14 @@ impl CspViolationStore for InMemoryCspViolationStore {
         let now = Utc::now();
         for violation in &violations {
             *directives.entry(violation.directive.clone()).or_insert(0) += 1;
-            *blocked_uris.entry(violation.blocked_uri.clone()).or_insert(0) += 1;
-            let bucket = violation.violated_at.date_naive().format("%Y-%m-%d").to_string();
+            *blocked_uris
+                .entry(violation.blocked_uri.clone())
+                .or_insert(0) += 1;
+            let bucket = violation
+                .violated_at
+                .date_naive()
+                .format("%Y-%m-%d")
+                .to_string();
             *time_series.entry(bucket).or_insert(0) += 1;
             let _ = now;
         }
@@ -260,18 +303,29 @@ impl CspViolationStore for InMemoryCspViolationStore {
         let mut violations_by_directive = directives
             .into_iter()
             .map(|(directive, count)| {
-                let recent = violations.iter().filter(|item| item.directive == directive).count();
-                let trend = if recent > 1 { "up".to_string() } else { "flat".to_string() };
-                DirectiveBreakdown { directive, count, trend }
+                let recent = violations
+                    .iter()
+                    .filter(|item| item.directive == directive)
+                    .count();
+                let trend = if recent > 1 {
+                    "up".to_string()
+                } else {
+                    "flat".to_string()
+                };
+                DirectiveBreakdown {
+                    directive,
+                    count,
+                    trend,
+                }
             })
             .collect::<Vec<_>>();
-        violations_by_directive.sort_by(|left, right| right.count.cmp(&left.count));
+        violations_by_directive.sort_by_key(|entry| std::cmp::Reverse(entry.count));
 
         let mut top_blocked_uris = blocked_uris
             .into_iter()
             .map(|(blocked_uri, count)| BlockedUriBreakdown { blocked_uri, count })
             .collect::<Vec<_>>();
-        top_blocked_uris.sort_by(|left, right| right.count.cmp(&left.count));
+        top_blocked_uris.sort_by_key(|entry| std::cmp::Reverse(entry.count));
 
         let mut violations_over_time = time_series
             .into_iter()
@@ -296,7 +350,10 @@ where
             "/api/v1/security/csp-violations",
             get(list_csp_violations::<S>).post(create_csp_violation::<S>),
         )
-        .route("/api/v1/security/csp-dashboard", get(get_csp_dashboard::<S>))
+        .route(
+            "/api/v1/security/csp-dashboard",
+            get(get_csp_dashboard::<S>),
+        )
         .with_state(store)
 }
 
@@ -465,7 +522,8 @@ impl SecurityHeadersConfig {
     }
 
     pub fn with_custom_header(mut self, name: &str, value: &str) -> Self {
-        self.custom_headers.insert(name.to_string(), value.to_string());
+        self.custom_headers
+            .insert(name.to_string(), value.to_string());
         self
     }
 
@@ -497,93 +555,140 @@ impl CspBuilder {
     }
 
     pub fn default_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("default-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "default-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn script_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("script-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "script-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn style_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("style-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "style-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn img_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("img-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "img-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn connect_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("connect-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "connect-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn font_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("font-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "font-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn frame_ancestors(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("frame-ancestors".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "frame-ancestors".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn base_uri(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("base-uri".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "base-uri".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn form_action(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("form-action".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "form-action".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn frame_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("frame-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "frame-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn media_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("media-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "media-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn object_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("object-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "object-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn worker_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("worker-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "worker-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn manifest_src(mut self, sources: &[&str]) -> Self {
-        self.directives.insert("manifest-src".to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            "manifest-src".to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn upgrade_insecure_requests(mut self) -> Self {
-        self.directives.insert("upgrade-insecure-requests".to_string(), vec![]);
+        self.directives
+            .insert("upgrade-insecure-requests".to_string(), vec![]);
         self
     }
 
     pub fn block_all_mixed_content(mut self) -> Self {
-        self.directives.insert("block-all-mixed-content".to_string(), vec![]);
+        self.directives
+            .insert("block-all-mixed-content".to_string(), vec![]);
         self
     }
 
     pub fn custom_directive(mut self, name: &str, sources: &[&str]) -> Self {
-        self.directives.insert(name.to_string(), sources.iter().map(|s| s.to_string()).collect());
+        self.directives.insert(
+            name.to_string(),
+            sources.iter().map(|s| s.to_string()).collect(),
+        );
         self
     }
 
     pub fn build(self) -> String {
         let mut directives = Vec::new();
-        
+
         for (name, values) in self.directives {
             if values.is_empty() {
                 directives.push(name);
@@ -591,7 +696,7 @@ impl CspBuilder {
                 directives.push(format!("{} {}", name, values.join(" ")));
             }
         }
-        
+
         directives.join("; ")
     }
 }
@@ -602,8 +707,15 @@ impl Default for CspBuilder {
     }
 }
 
+#[derive(Clone)]
 pub struct SecurityHeadersMiddleware {
     config: SecurityHeadersConfig,
+}
+
+impl Default for SecurityHeadersMiddleware {
+    fn default() -> Self {
+        Self::new(SecurityHeadersConfig::default())
+    }
 }
 
 impl SecurityHeadersMiddleware {
@@ -613,10 +725,6 @@ impl SecurityHeadersMiddleware {
 
     pub fn from_config(config: SecurityHeadersConfig) -> Self {
         Self::new(config)
-    }
-
-    pub fn default() -> Self {
-        Self::new(SecurityHeadersConfig::default())
     }
 
     pub fn development() -> Self {
@@ -635,7 +743,7 @@ impl SecurityHeadersMiddleware {
         let mut response = next.run(request).await;
 
         // Apply security headers
-        self.add_security_headers(&mut response.headers_mut());
+        self.add_security_headers(response.headers_mut());
 
         Ok(response)
     }
@@ -767,14 +875,18 @@ pub async fn security_headers_middleware(
 }
 
 // Custom middleware with config
-pub fn create_security_headers_middleware(config: SecurityHeadersConfig) -> impl Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, StatusCode>> + Send>> {
+pub fn create_security_headers_middleware(
+    config: SecurityHeadersConfig,
+) -> impl Fn(
+    Request,
+    Next,
+)
+    -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, StatusCode>> + Send>> {
     let middleware = SecurityHeadersMiddleware::new(config);
-    
+
     move |request: Request, next: Next| {
         let middleware = middleware.clone();
-        Box::pin(async move {
-            middleware.apply_security_headers(request, next).await
-        })
+        Box::pin(async move { middleware.apply_security_headers(request, next).await })
     }
 }
 
@@ -830,12 +942,21 @@ mod tests {
             .await
             .unwrap();
 
-        let violations = store.list_violations(&CspViolationFilter::default()).await.unwrap();
+        let violations = store
+            .list_violations(&CspViolationFilter::default())
+            .await
+            .unwrap();
         assert_eq!(violations.len(), 3);
 
         let dashboard = store.get_dashboard_aggregations(None).await.unwrap();
-        assert!(dashboard.violations_by_directive.iter().any(|entry| entry.directive == "script-src" && entry.count == 2));
-        assert!(dashboard.top_blocked_uris.iter().any(|entry| entry.blocked_uri == "https://cdn.example.net/app.js"));
+        assert!(dashboard
+            .violations_by_directive
+            .iter()
+            .any(|entry| entry.directive == "script-src" && entry.count == 2));
+        assert!(dashboard
+            .top_blocked_uris
+            .iter()
+            .any(|entry| entry.blocked_uri == "https://cdn.example.net/app.js"));
         assert!(!dashboard.violations_over_time.is_empty());
     }
 
@@ -892,7 +1013,10 @@ mod tests {
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::CREATED);
 
-        let violations = store.list_violations(&CspViolationFilter::default()).await.unwrap();
+        let violations = store
+            .list_violations(&CspViolationFilter::default())
+            .await
+            .unwrap();
         assert_eq!(violations.len(), 1);
     }
 
@@ -980,8 +1104,14 @@ mod tests {
             .with_custom_header("X-Custom-Header", "custom-value")
             .with_csp("default-src 'self'");
 
-        assert_eq!(config.custom_headers.get("X-Custom-Header"), Some(&"custom-value".to_string()));
-        assert_eq!(config.content_security_policy, Some("default-src 'self'".to_string()));
+        assert_eq!(
+            config.custom_headers.get("X-Custom-Header"),
+            Some(&"custom-value".to_string())
+        );
+        assert_eq!(
+            config.content_security_policy,
+            Some("default-src 'self'".to_string())
+        );
     }
 
     #[test]

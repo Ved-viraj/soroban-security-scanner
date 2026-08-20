@@ -4,7 +4,7 @@ use crate::event_logging::EventLoggingConfig as EventLoggingConfigType;
 use crate::gas_limits::GasLimitConfig as GasLimitConfigType;
 use crate::secure_id_generation::SecureIdConfig as SecureIdConfigType;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScannerConfig {
@@ -181,7 +181,7 @@ impl ScannerConfig {
         Ok(())
     }
 
-    pub fn should_ignore_path(&self, path: &PathBuf) -> bool {
+    pub fn should_ignore_path(&self, path: &Path) -> bool {
         self.ignore_paths
             .iter()
             .any(|ignore| path.starts_with(ignore) || path.file_name() == ignore.file_name())

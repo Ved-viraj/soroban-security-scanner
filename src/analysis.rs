@@ -1,6 +1,8 @@
 //! Analysis and result aggregation for security scans
 
-use crate::{InvariantRule, ScanResult, Severity, VulnerabilityType};
+use crate::invariants::InvariantRule;
+use crate::vulnerabilities::VulnerabilityType;
+use crate::{ScanResult, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -336,7 +338,7 @@ impl AnalysisResult {
         }
 
         let weighted_score =
-            (critical_count * 10 + high_count * 7 + medium_count * 4 + low_count * 1) as f64;
+            (critical_count * 10 + high_count * 7 + medium_count * 4 + low_count) as f64;
         let max_possible_score = (total_issues * 10) as f64;
 
         10.0 - (weighted_score / max_possible_score * 10.0)
@@ -366,7 +368,7 @@ impl AnalysisResult {
         }
 
         let weighted_score =
-            (critical_count * 10 + high_count * 7 + medium_count * 4 + low_count * 1) as f64;
+            (critical_count * 10 + high_count * 7 + medium_count * 4 + low_count) as f64;
         let max_possible_score = (total_issues * 10) as f64;
 
         10.0 - (weighted_score / max_possible_score * 10.0)

@@ -115,6 +115,29 @@ impl AnomalyDetector {
     pub fn subjects(&self) -> usize {
         self.stats.len()
     }
+
+    /// Clears all learned statistics while keeping the configuration.
+    /// Used when the monitoring baseline is reset (Issue #435).
+    pub fn reset(&mut self) {
+        self.stats.clear();
+    }
+
+    /// Seeds the model for `subject` from a calculated baseline so that,
+    /// once the learning period completes, observations are scored against
+    /// the baseline statistics (mean/standard deviation) instead of a cold
+    /// start. `count` is the number of observations the baseline was built
+    /// from; a seeded subject is immediately eligible for scoring.
+    pub fn seed_baseline(&mut self, subject: &str, count: u64, mean: f64, stddev: f64) {
+        // Reconstruct the Welford M2 term from the sample variance so future
+        // updates stay numerically consistent with the baseline.
+        let m2 = if count > 1 {
+            stddev.powi(2) * (count - 1) as f64
+        } else {
+            0.0
+        };
+        self.stats
+            .insert(subject.to_string(), RunningStats { count, mean, m2 });
+    }
 }
 
 #[cfg(test)]
@@ -174,5 +197,40 @@ mod tests {
         }
         assert!(d.observe("b", 9999.0).is_none()); // b has no baseline yet
         assert_eq!(d.subjects(), 2);
+    }
+
+    #[test]
+    fn reset_clears_all_statistics() {
+        let mut d = AnomalyDetector::new(AnomalyConfig::default());
+        for _ in 0..15 {
+            d.observe("a", 1.0);
+        }
+        assert!(d.observe("a", 1.0).is_some());
+        d.reset();
+        assert_eq!(d.subjects(), 0);
+        // Cold start again after reset.
+        assert!(d.observe("a", 1.0).is_none());
+    }
+
+    #[test]
+    fn seeded_baseline_scores_immediately() {
+        let mut d = AnomalyDetector::new(AnomalyConfig::default());
+        // Seed with a tight baseline around 10 (mean 10, sd 1, 30 samples).
+        d.seed_baseline("api", 30, 10.0, 1.0);
+        // A value 6 sd away is immediately flagged, no cold start needed.
+        let s = d.observe("api", 25.0).unwrap();
+        assert!(s.anomalous);
+        assert!(s.z > 3.0);
+    }
+
+    #[test]
+    fn seeded_baseline_keeps_welford_consistent() {
+        let mut d = AnomalyDetector::new(AnomalyConfig::default());
+        d.seed_baseline("api", 30, 10.0, 1.0);
+        // In-window values stay non-anomalous.
+        for _ in 0..5 {
+            let s = d.observe("api", 10.2).unwrap();
+            assert!(!s.anomalous);
+        }
     }
 }

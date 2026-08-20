@@ -59,10 +59,10 @@
 //! # Usage
 //!
 //! ```rust
-//! use soroban_security_scanner::protocol_analysis::*;
+//! use soroban_security_scanner::protocol_analysis::{ProtocolParser, static_analysis::StaticAnalyzer};
 //!
 //! // Parse a protocol manifest
-//! let manifest = ProtocolManifest::from_yaml(r#"
+//! let manifest = ProtocolParser::from_yaml(r#"
 //!   name: "MyDex"
 //!   version: "1.0.0"
 //!   contracts:
@@ -70,9 +70,12 @@
 //!       role: amm_pool
 //!   "#).unwrap();
 //!
-//! // Verify all protocol invariants
-//! let engine = ProtocolVerificationEngine::new();
-//! let report = engine.verify(&manifest, VerificationConfig::default()).unwrap();
+//! // The manifest parses and passes structural validation
+//! ProtocolParser::validate(&manifest).unwrap();
+//!
+//! // Verify protocol invariants via static analysis
+//! let results = StaticAnalyzer::verify_all(&manifest);
+//! let _ = results;
 //! ```
 
 pub mod adversarial;

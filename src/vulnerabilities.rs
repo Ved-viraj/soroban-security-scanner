@@ -32,6 +32,7 @@
 //! to enable comprehensive security auditing and tracking.
 
 use crate::Severity;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Classification of security vulnerabilities found in smart contracts.
@@ -52,14 +53,14 @@ use std::fmt;
 /// This enum is used by the analyzer to classify detected vulnerabilities.
 /// Each variant has an associated description, severity level, and remediation recommendation.
 /// This enables developers to understand and fix identified issues.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum VulnerabilityType {
     // Access Control Vulnerabilities
     MissingAccessControl,
     WeakAccessControl,
     UnauthorizedMint,
     UnauthorizedBurn,
-    
+
     // Token Economics Vulnerabilities
     InfiniteMint,
     InflationBug,
@@ -70,45 +71,45 @@ pub enum VulnerabilityType {
     BalanceUnderflow,
     BalanceOverflow,
     TransferWithoutBalanceCheck,
-    
+
     // Logic Vulnerabilities
     FrozenFunds,
     BrokenInvariant,
     RaceCondition,
     FrontRunningSusceptibility,
-    
+
     // Stellar Specific Vulnerabilities
     InsufficientFeeBump,
     InvalidTimeBounds,
     WeakSignatureVerification,
     StellarAssetManipulation,
-    
+
     // Smart Contract Best Practices
     UninitializedStorage,
     MissingEventEmission,
     PoorErrorHandling,
     HardcodedValues,
-    
+
     // Security Best Practices
     LackOfInputValidation,
     DenialOfService,
     InformationLeakage,
     CentralizationRisk,
-    
+
     // Gas Limit Vulnerabilities
     InsufficientGasLimitConsiderations,
     ComplexOperationGasExhaustion,
     EscrowReleaseGasRisk,
     EmergencyDistributionGasRisk,
     BatchOperationGasLimit,
-    
+
     // Event Logging Vulnerabilities
     MissingCriticalEventLogging,
     IncompleteEventAuditTrail,
     InsufficientEventMetadata,
     EventLoggingBypass,
     CriticalOperationWithoutEvents,
-    
+
     // Randomness and ID Generation Vulnerabilities
     WeakRandomnessInIdGeneration,
     PredictableLedgerSequenceIds,
@@ -148,58 +149,102 @@ impl VulnerabilityType {
     /// ```
     pub fn description(&self) -> &'static str {
         match self {
-            VulnerabilityType::MissingAccessControl => "Critical functions lack proper access control mechanisms",
-            VulnerabilityType::WeakAccessControl => "Access control can be bypassed through alternative execution paths",
+            VulnerabilityType::MissingAccessControl => {
+                "Critical functions lack proper access control mechanisms"
+            }
+            VulnerabilityType::WeakAccessControl => {
+                "Access control can be bypassed through alternative execution paths"
+            }
             VulnerabilityType::UnauthorizedMint => "Function allows unauthorized token minting",
             VulnerabilityType::UnauthorizedBurn => "Function allows unauthorized token burning",
-            
+
             VulnerabilityType::InfiniteMint => "Token supply can be inflated without limits",
             VulnerabilityType::InflationBug => "Token supply can be increased unexpectedly",
             VulnerabilityType::Reentrancy => "Contract vulnerable to reentrancy attacks",
             VulnerabilityType::IntegerOverflow => "Integer operations may overflow",
             VulnerabilityType::IntegerUnderflow => "Integer operations may underflow",
-            VulnerabilityType::InsufficientBalance => "Transfer operations don't validate sufficient balance",
+            VulnerabilityType::InsufficientBalance => {
+                "Transfer operations don't validate sufficient balance"
+            }
             VulnerabilityType::BalanceUnderflow => "Balance operations may cause underflow",
             VulnerabilityType::BalanceOverflow => "Balance operations may cause overflow",
-            VulnerabilityType::TransferWithoutBalanceCheck => "Transfer executed without balance verification",
-            
+            VulnerabilityType::TransferWithoutBalanceCheck => {
+                "Transfer executed without balance verification"
+            }
+
             VulnerabilityType::FrozenFunds => "Assets can become permanently locked",
             VulnerabilityType::BrokenInvariant => "Contract invariants can be violated",
             VulnerabilityType::RaceCondition => "Race condition in contract logic",
-            VulnerabilityType::FrontRunningSusceptibility => "Operations vulnerable to front-running",
-            
+            VulnerabilityType::FrontRunningSusceptibility => {
+                "Operations vulnerable to front-running"
+            }
+
             VulnerabilityType::InsufficientFeeBump => "Contract doesn't handle fee bumps properly",
             VulnerabilityType::InvalidTimeBounds => "Time bounds validation is missing or weak",
-            VulnerabilityType::WeakSignatureVerification => "Signature verification can be bypassed",
-            VulnerabilityType::StellarAssetManipulation => "Stellar asset operations can be manipulated",
-            
-            VulnerabilityType::UninitializedStorage => "Storage variables used before initialization",
+            VulnerabilityType::WeakSignatureVerification => {
+                "Signature verification can be bypassed"
+            }
+            VulnerabilityType::StellarAssetManipulation => {
+                "Stellar asset operations can be manipulated"
+            }
+
+            VulnerabilityType::UninitializedStorage => {
+                "Storage variables used before initialization"
+            }
             VulnerabilityType::MissingEventEmission => "Critical state changes don't emit events",
             VulnerabilityType::PoorErrorHandling => "Error handling is insufficient or misleading",
             VulnerabilityType::HardcodedValues => "Sensitive values are hardcoded",
-            
+
             VulnerabilityType::LackOfInputValidation => "Inputs are not properly validated",
             VulnerabilityType::DenialOfService => "Contract vulnerable to DoS attacks",
             VulnerabilityType::InformationLeakage => "Sensitive information is exposed",
             VulnerabilityType::CentralizationRisk => "Excessive centralization in contract logic",
-            
-            VulnerabilityType::InsufficientGasLimitConsiderations => "Complex operations don't account for gas limits",
-            VulnerabilityType::ComplexOperationGasExhaustion => "Complex operations may exhaust gas limits",
-            VulnerabilityType::EscrowReleaseGasRisk => "Escrow release operations have gas limit risks",
-            VulnerabilityType::EmergencyDistributionGasRisk => "Emergency reward distribution may exceed gas limits",
-            VulnerabilityType::BatchOperationGasLimit => "Batch operations don't consider gas limit constraints",
-            
-            VulnerabilityType::MissingCriticalEventLogging => "Critical operations lack proper event logging",
-            VulnerabilityType::IncompleteEventAuditTrail => "Event audit trail is incomplete or missing",
-            VulnerabilityType::InsufficientEventMetadata => "Events lack sufficient metadata for auditing",
+
+            VulnerabilityType::InsufficientGasLimitConsiderations => {
+                "Complex operations don't account for gas limits"
+            }
+            VulnerabilityType::ComplexOperationGasExhaustion => {
+                "Complex operations may exhaust gas limits"
+            }
+            VulnerabilityType::EscrowReleaseGasRisk => {
+                "Escrow release operations have gas limit risks"
+            }
+            VulnerabilityType::EmergencyDistributionGasRisk => {
+                "Emergency reward distribution may exceed gas limits"
+            }
+            VulnerabilityType::BatchOperationGasLimit => {
+                "Batch operations don't consider gas limit constraints"
+            }
+
+            VulnerabilityType::MissingCriticalEventLogging => {
+                "Critical operations lack proper event logging"
+            }
+            VulnerabilityType::IncompleteEventAuditTrail => {
+                "Event audit trail is incomplete or missing"
+            }
+            VulnerabilityType::InsufficientEventMetadata => {
+                "Events lack sufficient metadata for auditing"
+            }
             VulnerabilityType::EventLoggingBypass => "Event logging can be bypassed or disabled",
-            VulnerabilityType::CriticalOperationWithoutEvents => "Critical operations execute without event emission",
-            
-            VulnerabilityType::WeakRandomnessInIdGeneration => "IDs are generated using weak or predictable randomness",
-            VulnerabilityType::PredictableLedgerSequenceIds => "Ledger sequence numbers used for ID generation create predictable IDs",
-            VulnerabilityType::InsufficientEntropySources => "Insufficient entropy sources used for random number generation",
-            VulnerabilityType::IdCollisionVulnerability => "ID generation algorithm vulnerable to collisions",
-            VulnerabilityType::DeterministicNonceGeneration => "Nonces are generated deterministically, creating replay attack risks",
+            VulnerabilityType::CriticalOperationWithoutEvents => {
+                "Critical operations execute without event emission"
+            }
+
+            VulnerabilityType::WeakRandomnessInIdGeneration => {
+                "IDs are generated using weak or predictable randomness"
+            }
+            VulnerabilityType::PredictableLedgerSequenceIds => {
+                "Ledger sequence numbers used for ID generation create predictable IDs"
+            }
+            VulnerabilityType::InsufficientEntropySources => {
+                "Insufficient entropy sources used for random number generation"
+            }
+            VulnerabilityType::IdCollisionVulnerability => {
+                "ID generation algorithm vulnerable to collisions"
+            }
+            VulnerabilityType::DeterministicNonceGeneration => {
+                "Nonces are generated deterministically, creating replay attack risks"
+            }
         }
     }
 
@@ -240,13 +285,13 @@ impl VulnerabilityType {
             VulnerabilityType::InfiniteMint => Severity::Critical,
             VulnerabilityType::UnauthorizedMint => Severity::Critical,
             VulnerabilityType::UnauthorizedBurn => Severity::Critical,
-            
+
             VulnerabilityType::WeakAccessControl => Severity::High,
             VulnerabilityType::Reentrancy => Severity::High,
             VulnerabilityType::FrozenFunds => Severity::High,
             VulnerabilityType::BrokenInvariant => Severity::High,
             VulnerabilityType::StellarAssetManipulation => Severity::High,
-            
+
             VulnerabilityType::InflationBug => Severity::Medium,
             VulnerabilityType::IntegerOverflow => Severity::Medium,
             VulnerabilityType::IntegerUnderflow => Severity::Medium,
@@ -259,7 +304,7 @@ impl VulnerabilityType {
             VulnerabilityType::InsufficientFeeBump => Severity::Medium,
             VulnerabilityType::InvalidTimeBounds => Severity::Medium,
             VulnerabilityType::WeakSignatureVerification => Severity::Medium,
-            
+
             VulnerabilityType::UninitializedStorage => Severity::Low,
             VulnerabilityType::MissingEventEmission => Severity::Low,
             VulnerabilityType::PoorErrorHandling => Severity::Low,
@@ -268,19 +313,19 @@ impl VulnerabilityType {
             VulnerabilityType::DenialOfService => Severity::Medium,
             VulnerabilityType::InformationLeakage => Severity::Low,
             VulnerabilityType::CentralizationRisk => Severity::Medium,
-            
+
             VulnerabilityType::InsufficientGasLimitConsiderations => Severity::High,
             VulnerabilityType::ComplexOperationGasExhaustion => Severity::Critical,
             VulnerabilityType::EscrowReleaseGasRisk => Severity::High,
             VulnerabilityType::EmergencyDistributionGasRisk => Severity::Critical,
             VulnerabilityType::BatchOperationGasLimit => Severity::High,
-            
+
             VulnerabilityType::MissingCriticalEventLogging => Severity::High,
             VulnerabilityType::IncompleteEventAuditTrail => Severity::Medium,
             VulnerabilityType::InsufficientEventMetadata => Severity::Medium,
             VulnerabilityType::EventLoggingBypass => Severity::High,
             VulnerabilityType::CriticalOperationWithoutEvents => Severity::Critical,
-            
+
             VulnerabilityType::WeakRandomnessInIdGeneration => Severity::Critical,
             VulnerabilityType::PredictableLedgerSequenceIds => Severity::Critical,
             VulnerabilityType::InsufficientEntropySources => Severity::High,
@@ -329,7 +374,7 @@ impl VulnerabilityType {
             VulnerabilityType::WeakAccessControl => "Review and strengthen access control mechanisms, consider multiple authorization layers",
             VulnerabilityType::UnauthorizedMint => "Add proper authorization checks before minting operations",
             VulnerabilityType::UnauthorizedBurn => "Add proper authorization checks before burning operations",
-            
+
             VulnerabilityType::InfiniteMint => "Implement supply limits and proper minting controls",
             VulnerabilityType::InflationBug => "Add supply caps and validate all supply changes",
             VulnerabilityType::Reentrancy => "Use checks-effects-interactions pattern and implement reentrancy guards",
@@ -339,39 +384,39 @@ impl VulnerabilityType {
             VulnerabilityType::BalanceUnderflow => "Implement underflow protection for balance operations",
             VulnerabilityType::BalanceOverflow => "Implement overflow protection for balance operations",
             VulnerabilityType::TransferWithoutBalanceCheck => "Add balance checks before executing transfers",
-            
+
             VulnerabilityType::FrozenFunds => "Ensure all asset flows have proper exit paths",
             VulnerabilityType::BrokenInvariant => "Define and enforce critical invariants explicitly",
             VulnerabilityType::RaceCondition => "Implement proper locking mechanisms or atomic operations",
             VulnerabilityType::FrontRunningSusceptibility => "Add commit-reveal schemes or time-based protections",
-            
+
             VulnerabilityType::InsufficientFeeBump => "Implement proper fee handling and bump mechanisms",
             VulnerabilityType::InvalidTimeBounds => "Add comprehensive time bounds validation",
             VulnerabilityType::WeakSignatureVerification => "Strengthen signature verification with proper validation",
             VulnerabilityType::StellarAssetManipulation => "Implement proper asset validation and authorization",
-            
+
             VulnerabilityType::UninitializedStorage => "Initialize all storage variables before use",
             VulnerabilityType::MissingEventEmission => "Add events for all critical state changes",
             VulnerabilityType::PoorErrorHandling => "Implement comprehensive error handling with clear messages",
             VulnerabilityType::HardcodedValues => "Use configuration or environment variables instead of hardcoded values",
-            
+
             VulnerabilityType::LackOfInputValidation => "Add comprehensive input validation for all external inputs",
             VulnerabilityType::DenialOfService => "Implement rate limiting and resource management",
             VulnerabilityType::InformationLeakage => "Remove sensitive information from public interfaces",
             VulnerabilityType::CentralizationRisk => "Implement decentralized governance or multi-sig controls",
-            
+
             VulnerabilityType::InsufficientGasLimitConsiderations => "Add gas limit estimation and validation for complex operations",
             VulnerabilityType::ComplexOperationGasExhaustion => "Break down complex operations or implement gas optimization",
             VulnerabilityType::EscrowReleaseGasRisk => "Implement gas-efficient escrow release with batch processing",
             VulnerabilityType::EmergencyDistributionGasRisk => "Add gas limit checks and priority-based emergency distribution",
             VulnerabilityType::BatchOperationGasLimit => "Implement dynamic gas limit calculation for batch operations",
-            
+
             VulnerabilityType::MissingCriticalEventLogging => "Add comprehensive event logging for all critical operations",
             VulnerabilityType::IncompleteEventAuditTrail => "Ensure complete audit trail with before/after states",
             VulnerabilityType::InsufficientEventMetadata => "Include detailed metadata in all critical events",
             VulnerabilityType::EventLoggingBypass => "Implement mandatory event logging that cannot be bypassed",
             VulnerabilityType::CriticalOperationWithoutEvents => "Add event emission before and after critical operations",
-            
+
             VulnerabilityType::WeakRandomnessInIdGeneration => "Replace weak randomness with cryptographically secure ID generation",
             VulnerabilityType::PredictableLedgerSequenceIds => "Remove ledger sequence dependency from ID generation",
             VulnerabilityType::InsufficientEntropySources => "Use multiple entropy sources for random number generation",

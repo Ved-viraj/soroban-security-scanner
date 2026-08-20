@@ -4,7 +4,6 @@
 //! and dependencies, enabling the scanner to only re-scan files that
 //! have changed since the last run.
 
-use crate::ScanResult;
 use anyhow::{Context, Result};
 use log::info;
 use serde::{Deserialize, Serialize};
@@ -322,6 +321,8 @@ pub fn extract_dependencies(content: &str) -> Vec<String> {
     // Match grouped `use crate::{ ... };` - the opening brace
     let grouped_use_re =
         regex::Regex::new(r"^\s*(?:pub\s+)?use\s+([\w:]+(?:::[\w:]+)*)::\s*\{").unwrap();
+    // Match identifiers that look like module paths inside a grouped use block
+    let item_re = regex::Regex::new(r"(\w+(?:::(\w+))*)").unwrap();
 
     let lines: Vec<&str> = content.lines().collect();
     let mut i = 0;
@@ -337,10 +338,9 @@ pub fn extract_dependencies(content: &str) -> Vec<String> {
             while j < lines.len() {
                 if lines[j].contains('}') && (j > i || !line.contains('}')) {
                     // Extract module names from all lines between { and }
-                    for k in i..=j {
+                    for line_in_group in &lines[i..=j] {
                         // Extract identifiers that look like module paths
-                        let item_re = regex::Regex::new(r"(\w+(?:::(\w+))*)").unwrap();
-                        for item_cap in item_re.captures_iter(lines[k]) {
+                        for item_cap in item_re.captures_iter(line_in_group) {
                             let item = item_cap.get(1).unwrap().as_str();
                             // Skip keywords and the prefix itself
                             if item != "use"
@@ -369,7 +369,7 @@ pub fn extract_dependencies(content: &str) -> Vec<String> {
                     break;
                 }
             }
-            if i <= lines.len() && i > 0 && lines.get(i - 1).map_or(false, |l| l.contains('}')) {
+            if i <= lines.len() && i > 0 && lines.get(i - 1).is_some_and(|l| l.contains('}')) {
                 // Already advanced past the block
             } else {
                 i += 1;
@@ -415,7 +415,7 @@ pub fn collect_file_info(dir_path: &Path) -> Result<HashMap<String, (String, Vec
         let entry = entry?;
         let path = entry.path();
 
-        if path.extension().map_or(false, |ext| ext == "rs") {
+        if path.extension().is_some_and(|ext| ext == "rs") {
             let relative = path
                 .strip_prefix(dir_path)
                 .unwrap_or(path)

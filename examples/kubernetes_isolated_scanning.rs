@@ -4,11 +4,11 @@
 //! with complete Kubernetes isolation for tenant separation.
 
 use anyhow::Result;
-use std::time::Duration;
-use stellar_security_scanner::{
+use soroban_security_scanner::{
     config::ScannerConfig,
     kubernetes::{K8sScanManager, ScanAutoScaler, ScanPodConfig},
 };
+use std::time::Duration;
 use tokio;
 
 #[tokio::main]

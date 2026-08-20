@@ -47,6 +47,8 @@
 
 pub mod alerting;
 pub mod anomaly;
+pub mod api;
+pub mod baseline;
 pub mod detection;
 pub mod engine;
 pub mod event;
@@ -62,6 +64,14 @@ pub use alerting::{
     AlertDispatcher, AlertMessage, AlertRouting, ChannelKind, DispatchResult, NotificationChannel,
 };
 pub use anomaly::{AnomalyConfig, AnomalyDetector, AnomalyScore};
+pub use api::{
+    build_security_monitoring_routes, ResetBaselineResponse, SecurityMonitoringApiState,
+    SecurityMonitoringAuthContext, ADMIN_ROLE,
+};
+pub use baseline::{
+    BaselineConfig, BaselineConfigError, BaselineLearner, BaselineStatistics, BaselineStatus,
+    BaselineTransition,
+};
 pub use detection::{DetectionConfig, Finding, RuleEngine};
 pub use engine::{DashboardSnapshot, ProcessOutcome, SecurityMonitor};
 pub use event::{Component, EventKind, SecurityEvent, SecuritySeverity};

@@ -5,12 +5,12 @@ use crate::invariants::InvariantRule;
 use crate::vulnerabilities::VulnerabilityType;
 use crate::{ScanResult, Severity};
 use anyhow::Result;
+use fancy_regex::Regex;
 use log::{info, warn};
-use regex::Regex;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
-use syn::{Expr, ExprCall, ExprMethodCall, ExprPath, Item, ItemEnum, ItemFn, ItemStruct};
+use syn::{Item, ItemEnum, ItemFn, ItemStruct};
 
 pub struct SecurityScanner {
     vulnerability_patterns: Vec<(VulnerabilityType, Regex)>,
@@ -92,21 +92,21 @@ impl SecurityScanner {
 
         self.add_pattern(
             VulnerabilityType::InsufficientBalance,
-            r"transfer.*\{[^}]*?(?!balance.*>=|require.*balance)[^}]*?balance.*-=",
+            r"(?s)transfer.*\{[^}]*?(?!balance.*>=|require.*balance)[^}]*?balance.*-=",
         )?;
 
         self.add_pattern(
             VulnerabilityType::BalanceUnderflow,
-            r"balance.*-=.*(?!checked_|wrapping_|saturating_)",
+            r"(?s)balance.*-=.*(?!checked_|wrapping_|saturating_)",
         )?;
 
         self.add_pattern(
             VulnerabilityType::BalanceOverflow,
-            r"balance.*\+=.*(?!checked_|wrapping_|saturating_)",
+            r"(?s)balance.*\+=.*(?!checked_|wrapping_|saturating_)",
         )?;
 
         self.add_pattern(VulnerabilityType::TransferWithoutBalanceCheck,
-            r"fn\s+transfer.*\{[^}]*?(?!require.*balance|balance.*>=)[^}]*?env\.invoke_contract|balance.*-=.*balance.*\+=")?;
+            r"(?s)fn\s+transfer.*\{[^}]*?(?!require.*balance|balance.*>=)[^}]*?env\.invoke_contract|balance.*-=.*balance.*\+=")?;
 
         // Token Economics Vulnerabilities
         self.add_pattern(
@@ -297,22 +297,17 @@ impl SecurityScanner {
                 break;
             }
 
-            if let Some(matches) = pattern.find(&content) {
+            if let Ok(Some(matches)) = pattern.find(&content) {
                 // Additional context analysis
                 if self.is_vulnerability_context_valid(&syntax, &content, matches.range()) {
                     result.vulnerabilities.push(vuln_type.clone());
 
-                    // Trigger emergency stop for critical vulnerabilities
                     if vuln_type.severity() == Severity::Critical {
                         warn!(
                             "Critical vulnerability detected in {}: {}",
                             file_path.display(),
-                            vuln_type.to_string()
+                            vuln_type
                         );
-                        self.emergency_stop.stop_on_critical_vulnerability(
-                            &file_path.to_string_lossy(),
-                            &vuln_type.to_string(),
-                        )?;
                     }
                 }
             }
@@ -324,12 +319,31 @@ impl SecurityScanner {
         // Record heartbeat after file completion
         self.watchdog.heartbeat();
 
+        // Trigger emergency stop after the full file scan so that all
+        // vulnerabilities in the file are reported before the stop halts
+        // subsequent scanning.
+        if result
+            .vulnerabilities
+            .iter()
+            .any(|v| v.severity() == Severity::Critical)
+        {
+            self.emergency_stop.stop_on_critical_vulnerability(
+                &file_path.to_string_lossy(),
+                &result
+                    .vulnerabilities
+                    .iter()
+                    .find(|v| v.severity() == Severity::Critical)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+            )?;
+        }
+
         Ok(result)
     }
 
     fn should_ignore(&self, content: &str) -> bool {
         for pattern in &self.ignore_patterns {
-            if pattern.is_match(content) {
+            if pattern.is_match(content).unwrap_or(false) {
                 return true;
             }
         }
@@ -366,12 +380,10 @@ impl SecurityScanner {
 
     fn analyze_function(&self, func: &ItemFn, result: &mut ScanResult) {
         // Check for public functions without access control
-        if func.vis == syn::Visibility::Public(crate::syn::Public(crate::syn::Token::Pub(None))) {
-            if !self.has_access_control(&func.block) {
-                result
-                    .vulnerabilities
-                    .push(VulnerabilityType::MissingAccessControl);
-            }
+        if matches!(func.vis, syn::Visibility::Public(_)) && !self.has_access_control(&func.block) {
+            result
+                .vulnerabilities
+                .push(VulnerabilityType::MissingAccessControl);
         }
 
         // Check for unsafe operations
@@ -395,15 +407,14 @@ impl SecurityScanner {
         let content = quote::quote!(#block).to_string();
 
         // Check for potential overflow/underflow
-        if content.contains("+=") || content.contains("-=") {
-            if !content.contains("checked_")
-                && !content.contains("wrapping_")
-                && !content.contains("saturating_")
-            {
-                result
-                    .vulnerabilities
-                    .push(VulnerabilityType::IntegerOverflow);
-            }
+        if (content.contains("+=") || content.contains("-="))
+            && !content.contains("checked_")
+            && !content.contains("wrapping_")
+            && !content.contains("saturating_")
+        {
+            result
+                .vulnerabilities
+                .push(VulnerabilityType::IntegerOverflow);
         }
     }
 
@@ -424,7 +435,7 @@ impl SecurityScanner {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map_or(false, |ext| ext == "rs") {
+            if path.extension().is_some_and(|ext| ext == "rs") {
                 if let Ok(result) = self.scan_file(path) {
                     results.push(result);
                 }
@@ -453,7 +464,7 @@ impl SecurityScanner {
             }
 
             let full_path = dir_path.join(relative_path);
-            if full_path.exists() && full_path.extension().map_or(false, |ext| ext == "rs") {
+            if full_path.exists() && full_path.extension().is_some_and(|ext| ext == "rs") {
                 if let Ok(result) = self.scan_file(&full_path) {
                     results.push(result);
                 }
@@ -599,7 +610,7 @@ impl InvariantScanner {
                 break;
             }
 
-            if pattern.is_match(&content) {
+            if pattern.is_match(&content).unwrap_or(false) {
                 result.invariant_violations.push(rule.clone());
             }
         }
@@ -629,7 +640,7 @@ impl InvariantScanner {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map_or(false, |ext| ext == "rs") {
+            if path.extension().is_some_and(|ext| ext == "rs") {
                 if let Ok(result) = self.scan_file(path) {
                     results.push(result);
                 }
@@ -658,7 +669,7 @@ impl InvariantScanner {
             }
 
             let full_path = dir_path.join(relative_path);
-            if full_path.exists() && full_path.extension().map_or(false, |ext| ext == "rs") {
+            if full_path.exists() && full_path.extension().is_some_and(|ext| ext == "rs") {
                 if let Ok(result) = self.scan_file(&full_path) {
                     results.push(result);
                 }

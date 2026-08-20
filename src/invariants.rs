@@ -1,9 +1,10 @@
 //! Invariant checking rules for Stellar smart contracts
 
 use crate::Severity;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InvariantRule {
     // Token Invariants
     TotalSupplyConsistency,

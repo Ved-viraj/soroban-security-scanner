@@ -4,10 +4,9 @@
 //! for complex operations like escrow release and emergency reward distribution.
 
 use anyhow::Result;
-use log::{error, info, warn};
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Gas limit configuration for different operation types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,7 +92,7 @@ pub enum ImplementationDifficulty {
 }
 
 /// Gas risk levels
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GasRiskLevel {
     Low,
     Medium,
@@ -306,7 +305,7 @@ impl GasLimitManager {
 
         Ok(GasEstimation {
             estimated_gas,
-            complexity: profile.complexity,
+            complexity: profile.complexity.clone(),
             recommended_limit: final_limit,
             safety_margin,
             optimizations,
@@ -335,13 +334,15 @@ impl GasLimitManager {
             estimation.risk_level.clone()
         };
 
+        let recommendations = self.generate_recommendations(&estimation, provided_limit);
+
         Ok(GasValidationResult {
             is_valid,
             is_optimal,
             provided_limit,
             estimation,
             risk_level,
-            recommendations: self.generate_recommendations(&estimation, provided_limit),
+            recommendations,
         })
     }
 
@@ -465,7 +466,10 @@ impl GasLimitManager {
             recommendations.push("Consider implementing gas optimization suggestions".to_string());
         }
 
-        match estimation.risk_level {
+        // Assess risk against the limit the caller actually provided, not the
+        // recommended limit (which is by design close to the estimate and would
+        // otherwise always be flagged as High risk).
+        match self.assess_gas_risk(estimation.estimated_gas, provided_limit) {
             GasRiskLevel::Critical => {
                 recommendations
                     .push("CRITICAL: Gas limit is insufficient for this operation".to_string());
@@ -797,15 +801,15 @@ impl BatchGasEstimator {
     /// Format the batch estimate as a human-readable string for CLI output
     pub fn format_estimate(estimate: &BatchGasEstimate) -> String {
         let mut output = String::new();
-        output.push_str(&format!("📊 Batch Gas Estimate\n"));
-        output.push_str(&format!("═══════════════════════════════════\n"));
+        output.push_str("📊 Batch Gas Estimate\n");
+        output.push_str("═══════════════════════════════════\n");
         output.push_str(&format!("  Total items:     {}\n", estimate.total_items));
         output.push_str(&format!(
             "  Escrow releases: {}\n",
             estimate.escrow_releases
         ));
         output.push_str(&format!("  Verifications:   {}\n", estimate.verifications));
-        output.push_str(&format!("\n"));
+        output.push('\n');
         output.push_str(&format!(
             "  Item gas total:     {}\n",
             estimate.total_estimated_gas
@@ -835,7 +839,7 @@ impl BatchGasEstimator {
             "  Stellar max limit:  {}\n",
             estimate.stellar_max_limit
         ));
-        output.push_str(&format!("\n"));
+        output.push('\n');
         output.push_str(&format!(
             "  Risk level: {}\n",
             match estimate.risk_level {
@@ -847,9 +851,7 @@ impl BatchGasEstimator {
         ));
 
         if estimate.exceeds_recommended_threshold {
-            output.push_str(&format!(
-                "  ⚠️  WARNING: Estimated gas exceeds 90% of Stellar limit!\n"
-            ));
+            output.push_str("  ⚠️  WARNING: Estimated gas exceeds 90% of Stellar limit!\n");
             output.push_str(&format!(
                 "  💡  Suggested splits: {} ({} items, ~{} gas each)\n",
                 estimate.suggested_splits,
@@ -899,7 +901,7 @@ mod tests {
         parameters.insert("researchers".to_string(), 5);
 
         let result = manager
-            .validate_gas_limit("reward_distribution", &parameters, 1_000_000)
+            .validate_gas_limit("reward_distribution", &parameters, 200_000)
             .unwrap();
 
         assert!(result.is_valid);

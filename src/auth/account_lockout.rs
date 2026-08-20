@@ -70,6 +70,12 @@ impl InMemoryLockoutStore {
     }
 }
 
+impl Default for InMemoryLockoutStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait::async_trait]
 impl LockoutStore for InMemoryLockoutStore {
     async fn get_record(&self, user_id: &str) -> Result<Option<LockoutRecord>, LockoutError> {
@@ -103,21 +109,23 @@ impl LockoutStore for InMemoryLockoutStore {
             .records
             .write()
             .map_err(|e| LockoutError::Storage(e.to_string()))?;
-        
+
         let now = Utc::now();
         let mut count = 0;
-        
+
         records.retain(|_, record| {
-            let should_keep = !record.failed_attempts.is_empty() &&
-                             record.failed_attempts.iter().any(|attempt| 
-                                 attempt.timestamp > now - Duration::hours(24)) ||
-                             record.current_lockout.map_or(false, |lockout| lockout > now);
+            let should_keep = !record.failed_attempts.is_empty()
+                && record
+                    .failed_attempts
+                    .iter()
+                    .any(|attempt| attempt.timestamp > now - Duration::hours(24))
+                || record.current_lockout.is_some_and(|lockout| lockout > now);
             if !should_keep {
                 count += 1;
             }
             should_keep
         });
-        
+
         Ok(count)
     }
 }
@@ -176,7 +184,7 @@ impl LockoutStore for RedisLockoutStore {
             .map_err(|e| LockoutError::Serialization(e.to_string()))?;
 
         let record_key = self.record_key(&record.user_id);
-        
+
         // Set with TTL of 24 hours
         conn.set_ex(&record_key, record_json, 86400)
             .await
@@ -220,9 +228,13 @@ impl<S: LockoutStore> AccountLockoutService<S> {
     }
 
     pub fn add_config(&mut self, name: &str, config: LockoutConfig) -> Result<(), LockoutError> {
-        if config.max_attempts == 0 || config.window_minutes == 0 || config.lockout_duration_minutes == 0 {
+        if config.max_attempts == 0
+            || config.window_minutes == 0
+            || config.lockout_duration_minutes == 0
+        {
             return Err(LockoutError::InvalidConfig(
-                "max_attempts, window_minutes, and lockout_duration_minutes must be greater than 0".to_string(),
+                "max_attempts, window_minutes, and lockout_duration_minutes must be greater than 0"
+                    .to_string(),
             ));
         }
         self.configs.insert(name.to_string(), config);
@@ -237,10 +249,9 @@ impl<S: LockoutStore> AccountLockoutService<S> {
         user_agent: Option<String>,
         reason: String,
     ) -> Result<LockoutResult, LockoutError> {
-        let config = self
-            .configs
-            .get(config_name)
-            .ok_or_else(|| LockoutError::InvalidConfig(format!("Config '{}' not found", config_name)))?;
+        let config = self.configs.get(config_name).ok_or_else(|| {
+            LockoutError::InvalidConfig(format!("Config '{}' not found", config_name))
+        })?;
 
         let now = Utc::now();
         let window_start = now - Duration::minutes(config.window_minutes as i64);
@@ -273,7 +284,9 @@ impl<S: LockoutStore> AccountLockoutService<S> {
         }
 
         // Clean old attempts outside the window
-        record.failed_attempts.retain(|attempt| attempt.timestamp > window_start);
+        record
+            .failed_attempts
+            .retain(|attempt| attempt.timestamp > window_start);
 
         // Add new failed attempt
         record.failed_attempts.push(FailedAttempt {
@@ -293,13 +306,15 @@ impl<S: LockoutStore> AccountLockoutService<S> {
             record.lockout_count += 1;
 
             // Calculate lockout duration
-            let lockout_duration = if config.progressive_lockout && !config.lockout_multipliers.is_empty() {
-                let multiplier_index = (record.lockout_count as usize - 1).min(config.lockout_multipliers.len() - 1);
-                let multiplier = config.lockout_multipliers[multiplier_index];
-                config.lockout_duration_minutes * multiplier
-            } else {
-                config.lockout_duration_minutes
-            };
+            let lockout_duration =
+                if config.progressive_lockout && !config.lockout_multipliers.is_empty() {
+                    let multiplier_index = (record.lockout_count as usize - 1)
+                        .min(config.lockout_multipliers.len() - 1);
+                    let multiplier = config.lockout_multipliers[multiplier_index];
+                    config.lockout_duration_minutes * u64::from(multiplier)
+                } else {
+                    config.lockout_duration_minutes
+                };
 
             let lockout_expires = now + Duration::minutes(lockout_duration as i64);
             record.current_lockout = Some(lockout_expires);
@@ -337,6 +352,7 @@ impl<S: LockoutStore> AccountLockoutService<S> {
                 return Ok(LockoutStatus {
                     is_locked: false,
                     is_permanently_locked: false,
+                    permanent_lock_reason: None,
                     lockout_expires_at: None,
                     remaining_attempts: None,
                     total_attempts: 0,
@@ -348,11 +364,12 @@ impl<S: LockoutStore> AccountLockoutService<S> {
         };
 
         let now = Utc::now();
-        let is_locked = record.current_lockout.map_or(false, |lockout| lockout > now);
+        let is_locked = record.current_lockout.is_some_and(|lockout| lockout > now);
 
         Ok(LockoutStatus {
             is_locked,
             is_permanently_locked: record.is_permanently_locked,
+            permanent_lock_reason: record.permanent_lock_reason.clone(),
             lockout_expires_at: record.current_lockout,
             remaining_attempts: None, // Would need config to calculate
             total_attempts: record.total_attempts,
@@ -362,11 +379,14 @@ impl<S: LockoutStore> AccountLockoutService<S> {
         })
     }
 
-    pub async fn can_attempt_login(&self, user_id: &str, config_name: &str) -> Result<bool, LockoutError> {
-        let config = self
-            .configs
-            .get(config_name)
-            .ok_or_else(|| LockoutError::InvalidConfig(format!("Config '{}' not found", config_name)))?;
+    pub async fn can_attempt_login(
+        &self,
+        user_id: &str,
+        config_name: &str,
+    ) -> Result<bool, LockoutError> {
+        let config = self.configs.get(config_name).ok_or_else(|| {
+            LockoutError::InvalidConfig(format!("Config '{}' not found", config_name))
+        })?;
 
         let record = match self.store.get_record(user_id).await? {
             Some(r) => r,
@@ -387,7 +407,9 @@ impl<S: LockoutStore> AccountLockoutService<S> {
 
         // Check recent attempts
         let window_start = Utc::now() - Duration::minutes(config.window_minutes as i64);
-        let recent_attempts = record.failed_attempts.iter()
+        let recent_attempts = record
+            .failed_attempts
+            .iter()
             .filter(|attempt| attempt.timestamp > window_start)
             .count() as u32;
 
@@ -408,7 +430,11 @@ impl<S: LockoutStore> AccountLockoutService<S> {
         Ok(())
     }
 
-    pub async fn permanently_lock_account(&self, user_id: &str, reason: String) -> Result<(), LockoutError> {
+    pub async fn permanently_lock_account(
+        &self,
+        user_id: &str,
+        reason: String,
+    ) -> Result<(), LockoutError> {
         let mut record = match self.store.get_record(user_id).await? {
             Some(r) => r,
             None => LockoutRecord {
@@ -470,6 +496,7 @@ pub struct LockoutResult {
 pub struct LockoutStatus {
     pub is_locked: bool,
     pub is_permanently_locked: bool,
+    pub permanent_lock_reason: Option<String>,
     pub lockout_expires_at: Option<chrono::DateTime<Utc>>,
     pub remaining_attempts: Option<u32>,
     pub total_attempts: u32,
@@ -526,30 +553,38 @@ mod tests {
     async fn test_basic_account_lockout() {
         let store = InMemoryLockoutStore::new();
         let mut service = AccountLockoutService::new(store);
-        
-        service.add_config("test", LockoutConfig::new(3, 60, 30)).unwrap();
+
+        service
+            .add_config("test", LockoutConfig::new(3, 60, 30))
+            .unwrap();
 
         // First 2 attempts should not lock the account
         for i in 0..2 {
-            let result = service.record_failed_attempt(
-                "user1", 
-                "test", 
-                Some("127.0.0.1".to_string()), 
-                None, 
-                "Invalid password".to_string()
-            ).await.unwrap();
+            let result = service
+                .record_failed_attempt(
+                    "user1",
+                    "test",
+                    Some("127.0.0.1".to_string()),
+                    None,
+                    "Invalid password".to_string(),
+                )
+                .await
+                .unwrap();
             assert!(!result.is_locked);
             assert_eq!(result.remaining_attempts, 2 - i);
         }
 
         // 3rd attempt should lock the account
-        let result = service.record_failed_attempt(
-            "user1", 
-            "test", 
-            Some("127.0.0.1".to_string()), 
-            None, 
-            "Invalid password".to_string()
-        ).await.unwrap();
+        let result = service
+            .record_failed_attempt(
+                "user1",
+                "test",
+                Some("127.0.0.1".to_string()),
+                None,
+                "Invalid password".to_string(),
+            )
+            .await
+            .unwrap();
         assert!(result.is_locked);
         assert_eq!(result.lockout_duration, Some(30));
         assert_eq!(result.lockout_count, 1);
@@ -559,19 +594,36 @@ mod tests {
     async fn test_progressive_lockout() {
         let store = InMemoryLockoutStore::new();
         let mut service = AccountLockoutService::new(store);
-        
-        service.add_config("test", LockoutConfig::new(2, 60, 10).with_progressive_lockout(vec![1, 2, 3])).unwrap();
+
+        service
+            .add_config(
+                "test",
+                LockoutConfig::new(2, 60, 10).with_progressive_lockout(vec![1, 2, 3]),
+            )
+            .unwrap();
 
         // First lockout
-        service.record_failed_attempt("user1", "test", None, None, "Invalid".to_string()).await.unwrap();
-        let result1 = service.record_failed_attempt("user1", "test", None, None, "Invalid".to_string()).await.unwrap();
+        service
+            .record_failed_attempt("user1", "test", None, None, "Invalid".to_string())
+            .await
+            .unwrap();
+        let result1 = service
+            .record_failed_attempt("user1", "test", None, None, "Invalid".to_string())
+            .await
+            .unwrap();
         assert!(result1.is_locked);
         assert_eq!(result1.lockout_duration, Some(10));
 
         // Reset and trigger second lockout
         service.unlock_account("user1").await.unwrap();
-        service.record_failed_attempt("user1", "test", None, None, "Invalid".to_string()).await.unwrap();
-        let result2 = service.record_failed_attempt("user1", "test", None, None, "Invalid".to_string()).await.unwrap();
+        service
+            .record_failed_attempt("user1", "test", None, None, "Invalid".to_string())
+            .await
+            .unwrap();
+        let result2 = service
+            .record_failed_attempt("user1", "test", None, None, "Invalid".to_string())
+            .await
+            .unwrap();
         assert!(result2.is_locked);
         assert_eq!(result2.lockout_duration, Some(20)); // 10 * 2
         assert_eq!(result2.lockout_count, 2);
@@ -581,11 +633,16 @@ mod tests {
     async fn test_permanent_lockout() {
         let store = InMemoryLockoutStore::new();
         let mut service = AccountLockoutService::new(store);
-        
-        service.add_config("test", LockoutConfig::new(5, 60, 30)).unwrap();
+
+        service
+            .add_config("test", LockoutConfig::new(5, 60, 30))
+            .unwrap();
 
         // Permanently lock account
-        service.permanently_lock_account("user1", "Suspicious activity detected".to_string()).await.unwrap();
+        service
+            .permanently_lock_account("user1", "Suspicious activity detected".to_string())
+            .await
+            .unwrap();
 
         // Should not be able to attempt login
         let can_attempt = service.can_attempt_login("user1", "test").await.unwrap();
@@ -593,19 +650,30 @@ mod tests {
 
         let status = service.check_account_status("user1").await.unwrap();
         assert!(status.is_permanently_locked);
-        assert_eq!(status.permanent_lock_reason, Some("Suspicious activity detected".to_string()));
+        assert_eq!(
+            status.permanent_lock_reason,
+            Some("Suspicious activity detected".to_string())
+        );
     }
 
     #[tokio::test]
     async fn test_reset_failed_attempts() {
         let store = InMemoryLockoutStore::new();
         let mut service = AccountLockoutService::new(store);
-        
-        service.add_config("test", LockoutConfig::new(3, 60, 30)).unwrap();
+
+        service
+            .add_config("test", LockoutConfig::new(3, 60, 30))
+            .unwrap();
 
         // Add failed attempts
-        service.record_failed_attempt("user1", "test", None, None, "Invalid".to_string()).await.unwrap();
-        service.record_failed_attempt("user1", "test", None, None, "Invalid".to_string()).await.unwrap();
+        service
+            .record_failed_attempt("user1", "test", None, None, "Invalid".to_string())
+            .await
+            .unwrap();
+        service
+            .record_failed_attempt("user1", "test", None, None, "Invalid".to_string())
+            .await
+            .unwrap();
 
         // Reset
         service.reset_failed_attempts("user1").await.unwrap();
@@ -623,16 +691,24 @@ mod tests {
     async fn test_window_expiration() {
         let store = InMemoryLockoutStore::new();
         let mut service = AccountLockoutService::new(store);
-        
-        service.add_config("test", LockoutConfig::new(3, 1, 30)).unwrap(); // 1 minute window
+
+        service
+            .add_config("test", LockoutConfig::new(3, 1, 30))
+            .unwrap(); // 1 minute window
 
         // Add attempts
-        service.record_failed_attempt("user1", "test", None, None, "Invalid".to_string()).await.unwrap();
-        service.record_failed_attempt("user1", "test", None, None, "Invalid".to_string()).await.unwrap();
+        service
+            .record_failed_attempt("user1", "test", None, None, "Invalid".to_string())
+            .await
+            .unwrap();
+        service
+            .record_failed_attempt("user1", "test", None, None, "Invalid".to_string())
+            .await
+            .unwrap();
 
         // Wait for window to expire (in real tests, you'd use a mock clock)
         // For now, just test the logic structure
-        
+
         let can_attempt = service.can_attempt_login("user1", "test").await.unwrap();
         assert!(can_attempt); // Should still be able to attempt (2 < 3)
     }
