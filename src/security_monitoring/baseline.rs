@@ -337,11 +337,12 @@ impl BaselineLearner {
             }
             BaselineStatus::Active => {
                 let calculated = self.baseline_calculated_at.unwrap_or(now);
-                if now.saturating_sub(calculated) > self.config.baseline_expiry_seconds {
+                let age = now.saturating_sub(calculated);
+                if age > self.config.baseline_expiry_seconds {
                     self.status = BaselineStatus::Degraded;
                     self.expiry_warned = true;
                     log::warn!(
-                        "security-monitoring: baseline is {now} (calculated {calculated}) — older than the {}s expiry; degraded. Reset the baseline to resume detection.",
+                        "security-monitoring: baseline expired (age {age}s exceeds the {}s limit); degraded — reset the baseline to resume detection",
                         self.config.baseline_expiry_seconds
                     );
                     Some(BaselineTransition {
@@ -761,5 +762,54 @@ mod tests {
         l.record("a:1", 1.0, 10_000);
         assert!(l.tick(5_000).is_none()); // saturating_sub -> still learning
         assert_eq!(l.status(), BaselineStatus::Learning);
+    }
+
+    /// A tiny logger that records WARNING records so the stale-baseline
+    /// warning can be asserted (the crate has no log-capture harness).
+    struct CapturingLogger(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl log::Log for CapturingLogger {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record) {
+            if record.level() == log::Level::Warn {
+                self.0.lock().unwrap().push(format!("{}", record.args()));
+            }
+        }
+        fn flush(&self) {}
+    }
+
+    #[test]
+    fn stale_baseline_emits_warning_and_recommends_reset() {
+        use log::LevelFilter;
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        // Only set the global logger if no other test grabbed it first.
+        let _ = log::set_boxed_logger(Box::new(CapturingLogger(std::sync::Arc::clone(&captured))));
+        log::set_max_level(LevelFilter::Warn);
+
+        let mut l = learner();
+        record_n(&mut l, "alice:AuthFailure", 20, 1.0, 1000);
+        l.tick(1000 + 3600).unwrap(); // Active
+        let day = 24 * 60 * 60;
+        let transition = l.tick(1000 + 3600 + 30 * day + 1).unwrap();
+        assert_eq!(transition.to, BaselineStatus::Degraded);
+
+        let warnings = captured.lock().unwrap();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("expired") && w.contains("degraded")),
+            "expected a stale-baseline warning, got: {warnings:?}"
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("reset the baseline")),
+            "warning must recommend a baseline reset: {warnings:?}"
+        );
+        // One-shot: no warning spam on subsequent events.
+        let before = warnings.len();
+        assert!(l.tick(1000 + 3600 + 60 * day).is_none());
+        assert_eq!(warnings.len(), before);
     }
 }
