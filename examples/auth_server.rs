@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     middleware::{self, Next},
     response::{Html, Json},
     routing::{get, post},
@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
 use soroban_security_scanner::auth::{
-    AccountLockoutService, AuthContext, AuthMiddlewareConfig, AuthServices, InMemoryLockoutStore,
+    AccountLockoutService, AuthMiddlewareConfig, AuthServices, InMemoryLockoutStore,
     InMemoryRateLimitStore, InMemorySessionStore, JwtService, LockoutConfig, PasswordConfig,
     PasswordService, RateLimitConfig, RateLimitService, SecurityHeadersConfig,
     SecurityHeadersMiddleware, SessionManager,
@@ -28,7 +28,7 @@ struct User {
     created_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct AppState {
     users: Arc<tokio::sync::RwLock<Vec<User>>>,
     auth_services: AuthServices<InMemorySessionStore>,
@@ -238,7 +238,7 @@ struct LoginRequest {
 struct RegisterRequest {
     email: String,
     password: String,
-    name: Option<String>,
+    _name: Option<String>,
 }
 
 async fn login(
@@ -412,22 +412,22 @@ async fn register(
 }
 
 async fn forgot_password(Json(payload): Json<serde_json::Value>) -> Json<serde_json::Value> {
-    let email = payload.get("email").and_then(|v| v.as_str()).unwrap_or("");
+    let _email = payload.get("email").and_then(|v| v.as_str()).unwrap_or("");
 
     // In a real implementation, you would:
     // 1. Generate a reset token
     // 2. Send email with reset link
     // 3. Store token with expiration
 
-    Ok(Json(json!({
+    Json(json!({
         "success": true,
         "message": "If the email exists, a reset link has been sent"
-    })))
+    }))
 }
 
 async fn reset_password(Json(payload): Json<serde_json::Value>) -> Json<serde_json::Value> {
-    let token = payload.get("token").and_then(|v| v.as_str()).unwrap_or("");
-    let new_password = payload
+    let _token = payload.get("token").and_then(|v| v.as_str()).unwrap_or("");
+    let _new_password = payload
         .get("new_password")
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -437,10 +437,10 @@ async fn reset_password(Json(payload): Json<serde_json::Value>) -> Json<serde_js
     // 2. Update user password
     // 3. Invalidate all sessions
 
-    Ok(Json(json!({
+    Json(json!({
         "success": true,
         "message": "Password has been reset successfully"
-    })))
+    }))
 }
 
 async fn auth_status(
@@ -455,6 +455,7 @@ async fn auth_status(
         .unwrap_or_else(|_| soroban_security_scanner::auth::LockoutStatus {
             is_locked: false,
             is_permanently_locked: false,
+            permanent_lock_reason: None,
             lockout_expires_at: None,
             remaining_attempts: None,
             total_attempts: 0,
@@ -466,7 +467,7 @@ async fn auth_status(
     let rate_limit_status = state
         .auth_services
         .rate_limit_service
-        .get_status(&format!("login:{}", &email), "auth")
+        .get_status(&format!("login:{}", email), "auth")
         .await
         .unwrap_or_else(|_| soroban_security_scanner::auth::RateLimitStatus {
             current_requests: 0,
@@ -530,7 +531,7 @@ async fn get_users(State(state): State<AppState>) -> Json<serde_json::Value> {
     }))
 }
 
-async fn get_sessions(State(state): State<AppState>) -> Json<serde_json::Value> {
+async fn get_sessions(State(_state): State<AppState>) -> Json<serde_json::Value> {
     // Get all active sessions (simplified for demo)
     Json(json!({
         "sessions": [],
@@ -555,7 +556,9 @@ async fn get_stats(State(state): State<AppState>) -> Json<serde_json::Value> {
     }))
 }
 
-async fn rate_limited_endpoint(State(state): State<AppState>) -> Json<serde_json::Value> {
+async fn rate_limited_endpoint(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     let rate_limit_key = "demo:endpoint";
 
     match state

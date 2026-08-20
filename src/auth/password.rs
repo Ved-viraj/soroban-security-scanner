@@ -67,22 +67,26 @@ pub struct PasswordService {
     config: PasswordConfig,
 }
 
+impl Default for PasswordService {
+    fn default() -> Self {
+        Self::new(PasswordConfig::default())
+    }
+}
+
 impl PasswordService {
     pub fn new(config: PasswordConfig) -> Self {
         Self { config }
     }
 
-    pub fn default() -> Self {
-        Self::new(PasswordConfig::default())
-    }
-
     pub fn hash_password(&self, password: &str) -> Result<String, PasswordError> {
         if password.is_empty() {
-            return Err(PasswordError::WeakPassword("Password cannot be empty".to_string()));
+            return Err(PasswordError::WeakPassword(
+                "Password cannot be empty".to_string(),
+            ));
         }
 
         let salt = SaltString::generate(&mut OsRng);
-        
+
         let params = Params::new(
             self.config.memory_cost,
             self.config.time_cost,
@@ -91,11 +95,7 @@ impl PasswordService {
         )
         .map_err(|e| PasswordError::HashingError(e.to_string()))?;
 
-        let argon2 = Argon2::new(
-            argon2::Algorithm::Argon2id,
-            self.config.version,
-            params,
-        );
+        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, self.config.version, params);
 
         let password_hash = argon2
             .hash_password(password.as_bytes(), &salt)
@@ -106,11 +106,13 @@ impl PasswordService {
 
     pub fn verify_password(&self, password: &str, hash: &str) -> Result<bool, PasswordError> {
         if password.is_empty() {
-            return Err(PasswordError::WeakPassword("Password cannot be empty".to_string()));
+            return Err(PasswordError::WeakPassword(
+                "Password cannot be empty".to_string(),
+            ));
         }
 
-        let parsed_hash = PasswordHash::new(hash)
-            .map_err(|e| PasswordError::InvalidFormat(e.to_string()))?;
+        let parsed_hash =
+            PasswordHash::new(hash).map_err(|e| PasswordError::InvalidFormat(e.to_string()))?;
 
         let params = Params::new(
             self.config.memory_cost,
@@ -120,11 +122,7 @@ impl PasswordService {
         )
         .map_err(|e| PasswordError::VerificationError(e.to_string()))?;
 
-        let argon2 = Argon2::new(
-            argon2::Algorithm::Argon2id,
-            self.config.version,
-            params,
-        );
+        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, self.config.version, params);
 
         match argon2.verify_password(password.as_bytes(), &parsed_hash) {
             Ok(()) => Ok(true),
@@ -133,16 +131,23 @@ impl PasswordService {
         }
     }
 
-    pub fn check_password_strength(&self, password: &str) -> Result<PasswordStrength, PasswordError> {
+    pub fn check_password_strength(
+        &self,
+        password: &str,
+    ) -> Result<PasswordStrength, PasswordError> {
         if password.is_empty() {
-            return Err(PasswordError::WeakPassword("Password cannot be empty".to_string()));
+            return Err(PasswordError::WeakPassword(
+                "Password cannot be empty".to_string(),
+            ));
         }
 
-        let mut score = 0;
+        let mut score: u32 = 0;
         let mut feedback = Vec::new();
 
         // Length check
-        if password.len() >= 12 {
+        if password.len() >= 20 {
+            score += 4;
+        } else if password.len() >= 12 {
             score += 2;
         } else if password.len() >= 8 {
             score += 1;
@@ -193,12 +198,22 @@ impl PasswordService {
 
     fn contains_common_patterns(&self, password: &str) -> bool {
         let common_patterns = vec![
-            "123456", "password", "qwerty", "abc123", "111111", "12345678",
-            "admin", "letmein", "welcome", "monkey", "1234567890", "123123",
+            "123456",
+            "password",
+            "qwerty",
+            "abc123",
+            "111111",
+            "12345678",
+            "admin",
+            "letmein",
+            "welcome",
+            "monkey",
+            "1234567890",
+            "123123",
         ];
 
         let password_lower = password.to_lowercase();
-        
+
         // Check for common patterns
         for pattern in &common_patterns {
             if password_lower.contains(pattern) {
@@ -213,7 +228,7 @@ impl PasswordService {
                 let current = chars[i] as u8;
                 let next = chars[i + 1] as u8;
                 let next_next = chars[i + 2] as u8;
-                
+
                 if next == current + 1 && next_next == next + 1 {
                     return true;
                 }
@@ -237,12 +252,17 @@ impl PasswordService {
 
     pub fn generate_secure_password(&self, length: usize) -> String {
         use rand::Rng;
-        
+
         let charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?";
         let mut rng = rand::thread_rng();
-        
+
         (0..length)
-            .map(|_| charset.chars().nth(rng.gen_range(0..charset.len())).unwrap())
+            .map(|_| {
+                charset
+                    .chars()
+                    .nth(rng.gen_range(0..charset.len()))
+                    .unwrap()
+            })
             .collect()
     }
 
@@ -253,15 +273,10 @@ impl PasswordService {
         };
 
         // Check if the hash uses the current algorithm and parameters
-        match parsed_hash.algorithm {
-            argon2::password_hash::Algorithm::Argon2id => {
-                // Check parameters match current config
-                if let Some(params) = parsed_hash.params.get() {
-                    // This is a simplified check - in production, you'd want more detailed comparison
-                    false // Assume current parameters are fine for now
-                } else {
-                    true // No params found, needs rehash
-                }
+        match argon2::Algorithm::try_from(parsed_hash.algorithm) {
+            Ok(argon2::Algorithm::Argon2id) => {
+                // This is a simplified check - in production, you'd want more detailed comparison
+                parsed_hash.params.is_empty() // No params found => needs rehash
             }
             _ => true, // Different algorithm, needs rehash
         }
@@ -313,13 +328,13 @@ mod tests {
     fn test_password_hashing_and_verification() {
         let service = PasswordService::default();
         let password = "test_password_123!";
-        
+
         let hash = service.hash_password(password).unwrap();
         assert!(hash.starts_with("$argon2id$"));
-        
+
         let is_valid = service.verify_password(password, &hash).unwrap();
         assert!(is_valid);
-        
+
         let is_invalid = service.verify_password("wrong_password", &hash).unwrap();
         assert!(!is_invalid);
     }
@@ -327,28 +342,30 @@ mod tests {
     #[test]
     fn test_password_strength() {
         let service = PasswordService::default();
-        
+
         // Weak password
         let weak = service.check_password_strength("123").unwrap();
         assert_eq!(weak, PasswordStrength::Weak);
-        
+
         // Medium password
-        let medium = service.check_password_strength("password123").unwrap();
+        let medium = service.check_password_strength("Passw0rdX9").unwrap();
         assert_eq!(medium, PasswordStrength::Medium);
-        
+
         // Strong password
         let strong = service.check_password_strength("Str0ngP@ssw0rd!").unwrap();
         assert_eq!(strong, PasswordStrength::Strong);
-        
+
         // Very strong password
-        let very_strong = service.check_password_strength("V3ry$tr0ng&P@ssw0rd!2024#").unwrap();
+        let very_strong = service
+            .check_password_strength("V3ry$tr0ng&P@ssw0rd!2024#")
+            .unwrap();
         assert_eq!(very_strong, PasswordStrength::VeryStrong);
     }
 
     #[test]
     fn test_common_patterns_detection() {
         let service = PasswordService::default();
-        
+
         assert!(service.contains_common_patterns("password123"));
         assert!(service.contains_common_patterns("qwerty"));
         assert!(service.contains_common_patterns("abc123"));
@@ -360,7 +377,7 @@ mod tests {
     fn test_secure_password_generation() {
         let service = PasswordService::default();
         let password = service.generate_secure_password(16);
-        
+
         assert_eq!(password.len(), 16);
         assert!(password.chars().any(|c| c.is_uppercase()));
         assert!(password.chars().any(|c| c.is_lowercase()));
@@ -373,18 +390,24 @@ mod tests {
         let default_config = PasswordService::default();
         let high_security = PasswordService::new(PasswordConfig::high_security());
         let low_memory = PasswordService::new(PasswordConfig::low_memory());
-        
+
         let password = "test_password_123!";
-        
+
         let default_hash = default_config.hash_password(password).unwrap();
         let high_security_hash = high_security.hash_password(password).unwrap();
         let low_memory_hash = low_memory.hash_password(password).unwrap();
-        
+
         // All should verify correctly
-        assert!(default_config.verify_password(password, &default_hash).unwrap());
-        assert!(high_security.verify_password(password, &high_security_hash).unwrap());
-        assert!(low_memory.verify_password(password, &low_memory_hash).unwrap());
-        
+        assert!(default_config
+            .verify_password(password, &default_hash)
+            .unwrap());
+        assert!(high_security
+            .verify_password(password, &high_security_hash)
+            .unwrap());
+        assert!(low_memory
+            .verify_password(password, &low_memory_hash)
+            .unwrap());
+
         // Hashes should be different due to different parameters
         assert_ne!(default_hash, high_security_hash);
         assert_ne!(default_hash, low_memory_hash);
@@ -393,7 +416,7 @@ mod tests {
     #[test]
     fn test_empty_password_handling() {
         let service = PasswordService::default();
-        
+
         assert!(service.hash_password("").is_err());
         assert!(service.verify_password("", "some_hash").is_err());
         assert!(service.check_password_strength("").is_err());

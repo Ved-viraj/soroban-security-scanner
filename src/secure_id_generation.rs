@@ -4,7 +4,7 @@
 //! predictable ledger sequence-based IDs, addressing issue #114.
 
 use anyhow::Result;
-use log::{debug, error, info, warn};
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -191,7 +191,7 @@ impl SecureIdGenerator {
         let process_id = std::process::id();
         let thread_id = std::thread::current().id();
 
-        format!("{}:{}:{}", now, process_id, format!("{:?}", thread_id))
+        format!("{}:{}:{:?}", now, process_id, thread_id)
     }
 
     /// Get cryptographically secure random entropy
@@ -237,12 +237,13 @@ impl SecureIdGenerator {
         let digest = ring::digest::digest(&ring::digest::SHA256, entropy.as_bytes());
         let digest_bytes = digest.as_ref();
 
-        // Take the first 8 bytes and convert to u64
+        // Take the first 8 bytes and convert to u64.
+        // Use the full 64-bit hash value so every bit position retains
+        // uniform entropy (truncating via `% u64::MAX / 2` would bias the
+        // most significant bit to zero).
         let mut id_bytes = [0u8; 8];
         id_bytes.copy_from_slice(&digest_bytes[..8]);
-        let hash = u64::from_le_bytes(id_bytes);
-
-        let id = hash % u64::MAX / 2; // Keep it in reasonable range
+        let id = u64::from_le_bytes(id_bytes);
 
         Ok(id)
     }
@@ -318,40 +319,6 @@ impl SecureIdGenerator {
         Ok(!generated_ids.contains_key(&id_key))
     }
 
-    /// Generate ID with collision retry
-    fn generate_with_retry<F>(&self, generator: F) -> Result<u64>
-    where
-        F: Fn() -> Result<u64>,
-    {
-        let mut attempts = 0;
-
-        while attempts < self.config.max_collision_retries {
-            match generator() {
-                Ok(id) => {
-                    if self
-                        .validate_id_uniqueness(id, "generated")
-                        .unwrap_or(false)
-                    {
-                        return Ok(id);
-                    }
-                    warn!("ID collision detected, retrying (attempt {})", attempts + 1);
-                }
-                Err(e) => {
-                    if attempts == self.config.max_collision_retries - 1 {
-                        return Err(e);
-                    }
-                    debug!("ID generation failed, retrying: {}", e);
-                }
-            }
-            attempts += 1;
-        }
-
-        Err(anyhow::anyhow!(
-            "Failed to generate unique ID after {} attempts",
-            self.config.max_collision_retries
-        ))
-    }
-
     /// Get statistics about ID generation
     pub fn get_statistics(&self) -> Result<IdGenerationStats> {
         let generated_ids = self
@@ -384,16 +351,14 @@ pub struct IdGenerationStats {
 /// Secure ID builder for convenient ID generation
 pub struct SecureIdBuilder {
     generator: Arc<SecureIdGenerator>,
-    context: String,
     metadata: HashMap<String, String>,
 }
 
 impl SecureIdBuilder {
     /// Create a new secure ID builder
-    pub fn new(generator: Arc<SecureIdGenerator>, context: String) -> Self {
+    pub fn new(generator: Arc<SecureIdGenerator>, _context: String) -> Self {
         Self {
             generator,
-            context,
             metadata: HashMap::new(),
         }
     }
@@ -539,12 +504,10 @@ mod tests {
 
         let id = generator.generate_bounty_id("creator", 1234567890).unwrap();
 
-        // First check should be unique
-        assert!(generator.validate_id_uniqueness(id, "bounty").unwrap());
-
-        // After generating, it should no longer be considered unique
-        let _id2 = generator.generate_bounty_id("creator", 1234567891).unwrap();
-        // Note: In practice, this test might be flaky due to random nature
+        // The generated ID is recorded during generation (collision detection),
+        // so a never-before-seen ID must be unique while the recorded one is not.
+        assert!(generator.validate_id_uniqueness(id + 1, "bounty").unwrap());
+        assert!(!generator.validate_id_uniqueness(id, "bounty").unwrap());
     }
 
     #[test]
@@ -556,9 +519,9 @@ mod tests {
             EntropySource::UserProvided,
         ];
 
-        for source in sources {
+        for source in &sources {
             let mut config = SecureIdConfig::default();
-            config.entropy_source = source;
+            config.entropy_source = source.clone();
             let generator = SecureIdGenerator::new(config);
 
             let result = generator.generate_bounty_id("test", 1234567890);
@@ -606,6 +569,7 @@ mod tests {
         // All IDs should be unique
         let mut unique_ids = std::collections::HashSet::new();
         for id in ids {
+            let id = id.unwrap();
             assert!(!unique_ids.contains(&id), "Duplicate ID detected: {}", id);
             unique_ids.insert(id);
         }

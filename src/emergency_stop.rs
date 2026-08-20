@@ -128,7 +128,7 @@ impl EmergencyStop {
     fn setup_signal_handlers(sender: Sender<StopCommand>) -> Result<()> {
         use signal_hook::{consts::SIGTERM, iterator::Signals};
 
-        let mut signals = Signals::new(&[SIGTERM, signal_hook::consts::SIGINT])?;
+        let mut signals = Signals::new([SIGTERM, signal_hook::consts::SIGINT])?;
 
         thread::spawn(move || {
             for sig in &mut signals {
@@ -185,7 +185,7 @@ impl EmergencyStop {
 
     /// Emergency stop listener thread
     fn emergency_stop_listener(receiver: Receiver<StopCommand>, is_stopped: Arc<AtomicBool>) {
-        while let Ok(command) = receiver.recv() {
+        if let Ok(command) = receiver.recv() {
             match &command {
                 StopCommand::CriticalVulnerability {
                     file_path,
@@ -213,7 +213,6 @@ impl EmergencyStop {
             thread::sleep(Duration::from_millis(100));
 
             info!("Emergency stop completed");
-            break;
         }
     }
 }

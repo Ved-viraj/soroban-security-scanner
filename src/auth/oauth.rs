@@ -8,7 +8,6 @@ use oauth2::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuthUserInfo {
@@ -94,7 +93,8 @@ impl OAuthProvider {
                 client_id: "".to_string(),
                 client_secret: "".to_string(),
                 redirect_url: "http://localhost:3000/auth/microsoft/callback".to_string(),
-                auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".to_string(),
+                auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+                    .to_string(),
                 token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".to_string(),
                 scopes: vec![
                     "openid".to_string(),
@@ -126,7 +126,6 @@ impl OAuthProvider {
 #[derive(Debug, Clone)]
 struct StateEntry {
     provider: String,
-    created_at: u64,
     expires_at: u64,
 }
 
@@ -135,6 +134,12 @@ pub struct OAuthService {
     clients: HashMap<String, BasicClient>,
     configs: HashMap<String, OAuthConfig>,
     state_store: Mutex<HashMap<String, StateEntry>>,
+}
+
+impl Default for OAuthService {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OAuthService {
@@ -149,7 +154,11 @@ impl OAuthService {
         }
     }
 
-    pub fn add_provider(&mut self, provider: OAuthProvider, config: OAuthConfig) -> Result<(), OAuthError> {
+    pub fn add_provider(
+        &mut self,
+        provider: OAuthProvider,
+        config: OAuthConfig,
+    ) -> Result<(), OAuthError> {
         let client_id = ClientId::new(config.client_id.clone());
         let client_secret = ClientSecret::new(config.client_secret.clone());
 
@@ -162,13 +171,8 @@ impl OAuthService {
         let redirect_url = RedirectUrl::new(config.redirect_url.clone())
             .map_err(|e| OAuthError::ConfigError(format!("Invalid redirect URL: {}", e)))?;
 
-        let client = BasicClient::new(
-            client_id,
-            Some(client_secret),
-            auth_url,
-            Some(token_url),
-        )
-        .set_redirect_uri(redirect_url);
+        let client = BasicClient::new(client_id, Some(client_secret), auth_url, Some(token_url))
+            .set_redirect_uri(redirect_url);
 
         let provider_name = provider.as_str().to_string();
         self.clients.insert(provider_name.clone(), client);
@@ -178,11 +182,13 @@ impl OAuthService {
     }
 
     pub fn get_authorization_url(&self, provider: &str) -> Result<(String, CsrfToken), OAuthError> {
-        let client = self.clients.get(provider)
-            .ok_or_else(|| OAuthError::ConfigError(format!("Provider {} not configured", provider)))?;
+        let client = self.clients.get(provider).ok_or_else(|| {
+            OAuthError::ConfigError(format!("Provider {} not configured", provider))
+        })?;
 
-        let config = self.configs.get(provider)
-            .ok_or_else(|| OAuthError::ConfigError(format!("Provider {} config not found", provider)))?;
+        let config = self.configs.get(provider).ok_or_else(|| {
+            OAuthError::ConfigError(format!("Provider {} config not found", provider))
+        })?;
 
         let mut auth_request = client.authorize_url(CsrfToken::new_random);
 
@@ -207,7 +213,6 @@ impl OAuthService {
 
         let entry = StateEntry {
             provider: provider.to_string(),
-            created_at: now,
             expires_at: now + Self::STATE_TTL_SECONDS,
         };
 
@@ -237,13 +242,6 @@ impl OAuthService {
         }
 
         Ok(entry.provider)
-    }
-
-    /// Remove a state token from the store (used for cleanup)
-    fn remove_state(&self, state: &str) {
-        if let Ok(mut store) = self.state_store.lock() {
-            store.remove(state);
-        }
     }
 
     /// Clean up expired state tokens
@@ -278,8 +276,9 @@ impl OAuthService {
             return Err(OAuthError::InvalidState);
         }
 
-        let client = self.clients.get(provider)
-            .ok_or_else(|| OAuthError::ConfigError(format!("Provider {} not configured", provider)))?;
+        let client = self.clients.get(provider).ok_or_else(|| {
+            OAuthError::ConfigError(format!("Provider {} not configured", provider))
+        })?;
 
         let token_response = client
             .exchange_code(oauth2::AuthorizationCode::new(code.to_string()))
@@ -293,14 +292,21 @@ impl OAuthService {
         Ok(user_info)
     }
 
-    async fn get_user_info(&self, provider: &str, access_token: &str) -> Result<OAuthUserInfo, OAuthError> {
+    async fn get_user_info(
+        &self,
+        provider: &str,
+        access_token: &str,
+    ) -> Result<OAuthUserInfo, OAuthError> {
         match provider {
             "google" => self.get_google_user_info(access_token).await,
             "github" => self.get_github_user_info(access_token).await,
             "microsoft" => self.get_microsoft_user_info(access_token).await,
             "discord" => self.get_discord_user_info(access_token).await,
             "facebook" => self.get_facebook_user_info(access_token).await,
-            _ => Err(OAuthError::ConfigError(format!("Unsupported provider: {}", provider))),
+            _ => Err(OAuthError::ConfigError(format!(
+                "Unsupported provider: {}",
+                provider
+            ))),
         }
     }
 
@@ -331,7 +337,7 @@ impl OAuthService {
 
     async fn get_github_user_info(&self, access_token: &str) -> Result<OAuthUserInfo, OAuthError> {
         let client = reqwest::Client::new();
-        
+
         // Get user info
         let user_response = client
             .get("https://api.github.com/user")
@@ -378,7 +384,10 @@ impl OAuthService {
         })
     }
 
-    async fn get_microsoft_user_info(&self, access_token: &str) -> Result<OAuthUserInfo, OAuthError> {
+    async fn get_microsoft_user_info(
+        &self,
+        access_token: &str,
+    ) -> Result<OAuthUserInfo, OAuthError> {
         let client = reqwest::Client::new();
         let response = client
             .get("https://graph.microsoft.com/v1.0/me")
@@ -394,7 +403,7 @@ impl OAuthService {
 
         Ok(OAuthUserInfo {
             id: user_data.id,
-            email: user_data.mail.or(user_data.user_principal_name),
+            email: user_data.mail.unwrap_or(user_data.user_principal_name),
             name: user_data.display_name,
             username: None,
             avatar_url: None,
@@ -418,9 +427,12 @@ impl OAuthService {
             .map_err(|e| OAuthError::SerializationError(e.to_string()))?;
 
         Ok(OAuthUserInfo {
-            id: user_data.id,
-            email: user_data.email,
-            name: Some(format!("{}#{}", user_data.username, user_data.discriminator)),
+            id: user_data.id.clone(),
+            email: user_data.email.unwrap_or_default(),
+            name: Some(format!(
+                "{}#{}",
+                user_data.username, user_data.discriminator
+            )),
             username: Some(user_data.username),
             avatar_url: Some(format!(
                 "https://cdn.discordapp.com/avatars/{}/{}.png",
@@ -432,7 +444,10 @@ impl OAuthService {
         })
     }
 
-    async fn get_facebook_user_info(&self, access_token: &str) -> Result<OAuthUserInfo, OAuthError> {
+    async fn get_facebook_user_info(
+        &self,
+        access_token: &str,
+    ) -> Result<OAuthUserInfo, OAuthError> {
         let client = reqwest::Client::new();
         let response = client
             .get("https://graph.facebook.com/me")
@@ -451,7 +466,7 @@ impl OAuthService {
 
         Ok(OAuthUserInfo {
             id: user_data.id,
-            email: user_data.email,
+            email: user_data.email.unwrap_or_default(),
             name: user_data.name,
             username: None,
             avatar_url: user_data.picture.map(|p| p.data.url),
@@ -537,11 +552,17 @@ mod tests {
     #[test]
     fn test_oauth_provider_defaults() {
         let google_config = OAuthProvider::Google.default_config();
-        assert_eq!(google_config.auth_url, "https://accounts.google.com/o/oauth2/v2/auth");
+        assert_eq!(
+            google_config.auth_url,
+            "https://accounts.google.com/o/oauth2/v2/auth"
+        );
         assert_eq!(google_config.scopes.len(), 2);
 
         let github_config = OAuthProvider::GitHub.default_config();
-        assert_eq!(github_config.auth_url, "https://github.com/login/oauth/authorize");
+        assert_eq!(
+            github_config.auth_url,
+            "https://github.com/login/oauth/authorize"
+        );
         assert_eq!(github_config.scopes, vec!["user:email"]);
     }
 
@@ -565,7 +586,9 @@ mod tests {
         let service = OAuthService::new();
 
         // Store a state token
-        service.store_state("google", "valid-state-token-123").unwrap();
+        service
+            .store_state("google", "valid-state-token-123")
+            .unwrap();
 
         // Validate it should succeed and return the provider
         let provider = service.validate_state("valid-state-token-123").unwrap();
@@ -630,11 +653,13 @@ mod tests {
                 .as_secs()
                 .saturating_sub(3600); // 1 hour ago
 
-            store.insert("expired-state".to_string(), StateEntry {
-                provider: "google".to_string(),
-                created_at: past,
-                expires_at: past + 1, // expired 3599 seconds ago
-            });
+            store.insert(
+                "expired-state".to_string(),
+                StateEntry {
+                    provider: "google".to_string(),
+                    expires_at: past + 1, // expired 3599 seconds ago
+                },
+            );
         }
 
         // Expired state should be rejected
@@ -658,23 +683,29 @@ mod tests {
                 .as_secs();
 
             // Expired state
-            store.insert("old-1".to_string(), StateEntry {
-                provider: "google".to_string(),
-                created_at: now - 3600,
-                expires_at: now - 1800,
-            });
-            store.insert("old-2".to_string(), StateEntry {
-                provider: "github".to_string(),
-                created_at: now - 7200,
-                expires_at: now - 3600,
-            });
+            store.insert(
+                "old-1".to_string(),
+                StateEntry {
+                    provider: "google".to_string(),
+                    expires_at: now - 1800,
+                },
+            );
+            store.insert(
+                "old-2".to_string(),
+                StateEntry {
+                    provider: "github".to_string(),
+                    expires_at: now - 3600,
+                },
+            );
 
             // Active state (not expired)
-            store.insert("active".to_string(), StateEntry {
-                provider: "google".to_string(),
-                created_at: now,
-                expires_at: now + 600,
-            });
+            store.insert(
+                "active".to_string(),
+                StateEntry {
+                    provider: "google".to_string(),
+                    expires_at: now + 600,
+                },
+            );
         }
 
         let cleaned = service.cleanup_expired_states().unwrap();
@@ -700,11 +731,13 @@ mod tests {
                 .as_secs()
                 .saturating_sub(3600);
 
-            store.insert("expired-state-rejected".to_string(), StateEntry {
-                provider: "google".to_string(),
-                created_at: past,
-                expires_at: past + 1,
-            });
+            store.insert(
+                "expired-state-rejected".to_string(),
+                StateEntry {
+                    provider: "google".to_string(),
+                    expires_at: past + 1,
+                },
+            );
         }
 
         let result = service.validate_state("expired-state-rejected");

@@ -1,7 +1,6 @@
 //! Report generation for security scan results
 
 use crate::analysis::AnalysisResult;
-use crate::ScanResult;
 use colored::*;
 use serde_json;
 use std::fs;
@@ -351,7 +350,7 @@ impl SecurityReport {
                     <strong>{}:</strong> {} occurrences ({})
                     <br><em>{}</em>
                 </div>"#,
-                vuln.to_string(),
+                vuln,
                 count,
                 vuln.severity().as_str(),
                 vuln.description()
@@ -372,7 +371,7 @@ impl SecurityReport {
                     <strong>{}:</strong> {} violations ({})
                     <br><em>{}</em>
                 </div>"#,
-                invariant.to_string(),
+                invariant,
                 count,
                 invariant.severity().as_str(),
                 invariant.description()
@@ -492,7 +491,7 @@ Generated on: {}
         for (vuln, count) in &analysis.most_common_vulnerabilities {
             markdown.push_str(&format!(
                 "### {} ({})\n\n**Occurrences**: {}\n\n**Description**: {}\n\n**Recommendation**: {}\n\n",
-                vuln.to_string(),
+                vuln,
                 vuln.severity().as_str(),
                 count,
                 vuln.description(),
@@ -511,7 +510,7 @@ Generated on: {}
         for (invariant, count) in &analysis.most_violated_invariants {
             markdown.push_str(&format!(
                 "### {} ({})\n\n**Violations**: {}\n\n**Description**: {}\n\n**Recommendation**: {}\n\n",
-                invariant.to_string(),
+                invariant,
                 invariant.severity().as_str(),
                 count,
                 invariant.description(),

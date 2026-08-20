@@ -10,8 +10,8 @@
 #[derive(Debug, Clone)]
 pub struct ScanResult {
     pub file_path: String,
-    pub vulnerabilities: Vec<String>,
-    pub invariant_violations: Vec<String>,
+    pub vulnerabilities: Vec<crate::vulnerabilities::VulnerabilityType>,
+    pub invariant_violations: Vec<crate::invariants::InvariantRule>,
     pub recommendations: Vec<String>,
 }
 
@@ -34,7 +34,7 @@ impl ScanResult {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Severity {
     Critical,
     High,
@@ -104,37 +104,51 @@ pub use security_monitoring::{
     SecurityMonitor, SecurityMonitoringApiState, SecuritySeverity,
 };
 
+// Authentication & authorization (JWT, sessions, rate limiting, account
+// lockout, OAuth, security headers). Self-contained and compiles cleanly
+// under default features.
+pub mod auth;
+pub use auth::{
+    AccountLockoutService, AuthContext, AuthMiddleware, AuthMiddlewareConfig, AuthServices,
+    CspBuilder, InMemoryLockoutStore, InMemoryRateLimitStore, InMemorySessionStore, JwtClaims,
+    JwtError, JwtService, LockoutConfig, LockoutError, LockoutStatus, OAuthError, OAuthProvider,
+    OAuthService, OAuthUserInfo, PasswordConfig, PasswordError, PasswordService, PasswordStrength,
+    RateLimitConfig, RateLimitError, RateLimitService, RateLimitStatus, RevocationError,
+    RevokedToken, SecurityHeadersConfig, SecurityHeadersMiddleware, SessionData, SessionError,
+    SessionManager, SessionStore, TokenRevocationList,
+};
+
+// Analysis, reporting and scanner modules required by the CLI and the
+// integration test suite. Wired under default features; the remaining
+// modules stay behind the `broken-modules` feature gate.
+pub mod analysis;
+pub mod config;
+pub mod emergency_stop;
+pub mod event_logging;
+pub mod gas_limits;
+pub mod incremental_scan;
+pub mod invariants;
+pub mod report;
+pub mod scanners;
+pub mod secure_id_generation;
+pub mod severity_scoring;
+pub mod vulnerabilities;
+
 // === Broken modules gated behind feature flag ===
 // Each module has pre-existing compilation errors (borrow checker violations,
 // missing trait impls, type mismatches, unresolved imports) that are being
 // fixed incrementally. Enable "broken-modules" feature to include them.
 
 #[cfg(feature = "broken-modules")]
-pub mod analysis;
-#[cfg(feature = "broken-modules")]
 pub mod audit_proof_of_scan;
 #[cfg(feature = "broken-modules")]
 pub mod batch_operations;
 #[cfg(feature = "broken-modules")]
-pub mod config;
-#[cfg(feature = "broken-modules")]
 pub mod database;
-#[cfg(feature = "broken-modules")]
-pub mod db_pool;
 #[cfg(feature = "broken-modules")]
 pub mod differential_fuzzing;
 #[cfg(feature = "broken-modules")]
-pub mod emergency_stop;
-#[cfg(feature = "broken-modules")]
 pub mod escrow;
-#[cfg(feature = "broken-modules")]
-pub mod event_logging;
-#[cfg(feature = "broken-modules")]
-pub mod gas_limits;
-#[cfg(feature = "broken-modules")]
-pub mod incremental_scan;
-#[cfg(feature = "broken-modules")]
-pub mod invariants;
 #[cfg(feature = "broken-modules")]
 pub mod kubernetes;
 #[cfg(feature = "broken-modules")]
@@ -142,17 +156,9 @@ pub mod multisig;
 #[cfg(feature = "broken-modules")]
 pub mod notification_service;
 #[cfg(feature = "broken-modules")]
-pub mod protocol_analysis;
-#[cfg(feature = "broken-modules")]
 pub mod rate_limiting;
 #[cfg(feature = "broken-modules")]
-pub mod report;
-#[cfg(feature = "broken-modules")]
 pub mod scanner_registry;
-#[cfg(feature = "broken-modules")]
-pub mod scanners;
-#[cfg(feature = "broken-modules")]
-pub mod secure_id_generation;
 #[cfg(feature = "broken-modules")]
 pub mod security_analyzer;
 #[cfg(feature = "broken-modules")]
@@ -161,8 +167,6 @@ pub mod session;
 pub mod storage_safety;
 #[cfg(feature = "broken-modules")]
 pub mod time_travel_debugger;
-#[cfg(feature = "broken-modules")]
-pub mod upload_sanitization;
 #[cfg(feature = "broken-modules")]
 pub mod wallet;
 

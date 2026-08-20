@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
-use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum RevocationError {
@@ -73,7 +72,7 @@ impl TokenRevocationList {
             .write()
             .unwrap()
             .entry(user_id.to_string())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(jti.to_string());
     }
 
@@ -144,8 +143,7 @@ impl TokenRevocationList {
         drop(user_tokens);
 
         let revoked = self.revoked_tokens.read().unwrap();
-        jtis
-            .iter()
+        jtis.iter()
             .filter_map(|jti| revoked.get(jti).cloned())
             .collect()
     }
@@ -161,6 +159,7 @@ impl Default for TokenRevocationList {
 mod tests {
     use super::*;
     use chrono::Duration;
+    use uuid::Uuid;
 
     #[test]
     fn test_revoke_single_token() {

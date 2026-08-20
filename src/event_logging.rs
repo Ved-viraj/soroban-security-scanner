@@ -8,7 +8,6 @@ use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// Event logging configuration
@@ -89,7 +88,7 @@ pub enum CriticalOperation {
 }
 
 /// Event severity levels
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EventSeverity {
     Low,
     Medium,
@@ -98,7 +97,7 @@ pub enum EventSeverity {
 }
 
 /// Event status
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EventStatus {
     Started,
     InProgress,
@@ -200,7 +199,7 @@ impl EventLogger {
     fn compute_event_hash(event: &CriticalEvent) -> String {
         let mut hasher = Sha256::new();
         hasher.update(event.event_id.as_bytes());
-        hasher.update(&event.timestamp.to_le_bytes());
+        hasher.update(event.timestamp.to_le_bytes());
         hasher.update(format!("{:?}", event.operation).as_bytes());
         hasher.update(format!("{:?}", event.severity).as_bytes());
         hasher.update(format!("{:?}", event.status).as_bytes());
@@ -252,6 +251,9 @@ impl EventLogger {
         // Build the event with hash chaining
         let previous_hash = Self::compute_previous_event_hash(&events);
         let mut chained_event = event;
+        if chained_event.event_id.is_empty() {
+            chained_event.event_id = self.generate_event_id();
+        }
         chained_event.previous_event_hash = previous_hash.clone();
         chained_event.event_hash = Self::compute_event_hash(&chained_event);
 
@@ -444,21 +446,21 @@ impl EventLogger {
         let mut csv = String::from("event_id,timestamp,operation,severity,status,description,actor,target,previous_event_hash,event_hash,error_message,execution_duration_ms,gas_consumed,transaction_hash,ledger_sequence\n");
         for event in events {
             csv.push_str(&format!(
-                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+                "{},{},{:?},{:?},{:?},{},{},{},{},{},{},{},{},{},{}\n",
                 Self::csv_escape(&event.event_id),
                 event.timestamp,
-                format!("{:?}", event.operation),
-                format!("{:?}", event.severity),
-                format!("{:?}", event.status),
+                event.operation,
+                event.severity,
+                event.status,
                 Self::csv_escape(&event.description),
                 Self::csv_escape(&event.actor),
-                Self::csv_escape(&event.target.as_deref().unwrap_or("")),
+                Self::csv_escape(event.target.as_deref().unwrap_or("")),
                 event.previous_event_hash,
                 event.event_hash,
-                Self::csv_escape(&event.error_message.as_deref().unwrap_or("")),
+                Self::csv_escape(event.error_message.as_deref().unwrap_or("")),
                 event.execution_duration_ms.unwrap_or(0),
                 event.gas_consumed.unwrap_or(0),
-                Self::csv_escape(&event.transaction_hash.as_deref().unwrap_or("")),
+                Self::csv_escape(event.transaction_hash.as_deref().unwrap_or("")),
                 event.ledger_sequence.unwrap_or(0),
             ));
         }
@@ -629,6 +631,9 @@ impl EventBuilder {
                 gas_consumed: None,
                 transaction_hash: None,
                 ledger_sequence: None,
+                // Hash fields are computed and chained in `store_event`
+                event_hash: String::new(),
+                previous_event_hash: String::new(),
             },
         }
     }

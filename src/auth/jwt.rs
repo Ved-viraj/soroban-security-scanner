@@ -1,21 +1,21 @@
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation, Algorithm};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JwtClaims {
-    pub sub: String,        // Subject (user ID)
-    pub email: String,      // User email
-    pub role: String,       // User role
+    pub sub: String,              // Subject (user ID)
+    pub email: String,            // User email
+    pub role: String,             // User role
     pub permissions: Vec<String>, // User permissions
-    pub session_id: String, // Session identifier
-    pub iat: i64,          // Issued at
-    pub exp: i64,          // Expiration time
-    pub iss: String,       // Issuer
-    pub aud: String,       // Audience
-    pub jti: String,       // JWT ID
+    pub session_id: String,       // Session identifier
+    pub iat: i64,                 // Issued at
+    pub exp: i64,                 // Expiration time
+    pub iss: String,              // Issuer
+    pub aud: String,              // Audience
+    pub jti: String,              // JWT ID
 }
 
 #[derive(Debug, Error)]
@@ -37,6 +37,7 @@ pub enum JwtError {
 use crate::auth::token_revocation::TokenRevocationList;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct JwtService {
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
@@ -82,7 +83,7 @@ impl JwtService {
     ) -> Result<String, JwtError> {
         let now = Utc::now();
         let exp = now + Duration::hours(expires_in_hours);
-        
+
         let claims = JwtClaims {
             sub: user_id.to_string(),
             email: email.to_string(),
@@ -109,7 +110,7 @@ impl JwtService {
     ) -> Result<String, JwtError> {
         let now = Utc::now();
         let exp = now + Duration::days(expires_in_days);
-        
+
         let claims = JwtClaims {
             sub: user_id.to_string(),
             email: "".to_string(), // Refresh tokens don't need email
@@ -134,10 +135,12 @@ impl JwtService {
         validation.set_issuer(&[&self.issuer]);
         validation.set_audience(&[&self.audience]);
 
-        let token_data = decode::<JwtClaims>(token, &self.decoding_key, &validation)
-            .map_err(|e| match e.kind() {
-                jsonwebtoken::errors::ErrorKind::ExpiredSignature => JwtError::Expired,
-                _ => JwtError::InvalidToken(e),
+        let token_data =
+            decode::<JwtClaims>(token, &self.decoding_key, &validation).map_err(|e| {
+                match e.kind() {
+                    jsonwebtoken::errors::ErrorKind::ExpiredSignature => JwtError::Expired,
+                    _ => JwtError::InvalidToken(e),
+                }
             })?;
 
         // Check if token has been revoked (Issue #428)
@@ -154,10 +157,12 @@ impl JwtService {
         validation.set_issuer(&[&self.issuer]);
         validation.set_audience(&[&format!("{}-refresh", self.audience)]);
 
-        let token_data = decode::<JwtClaims>(token, &self.decoding_key, &validation)
-            .map_err(|e| match e.kind() {
-                jsonwebtoken::errors::ErrorKind::ExpiredSignature => JwtError::Expired,
-                _ => JwtError::InvalidToken(e),
+        let token_data =
+            decode::<JwtClaims>(token, &self.decoding_key, &validation).map_err(|e| {
+                match e.kind() {
+                    jsonwebtoken::errors::ErrorKind::ExpiredSignature => JwtError::Expired,
+                    _ => JwtError::InvalidToken(e),
+                }
             })?;
 
         if token_data.claims.role != "refresh" {
@@ -168,11 +173,7 @@ impl JwtService {
     }
 
     pub fn extract_token_from_header(&self, auth_header: &str) -> Option<String> {
-        if auth_header.starts_with("Bearer ") {
-            Some(auth_header[7..].to_string())
-        } else {
-            None
-        }
+        auth_header.strip_prefix("Bearer ").map(str::to_string)
     }
 
     pub fn is_token_expired(&self, token: &str) -> bool {
@@ -198,7 +199,7 @@ impl JwtService {
     ) -> Result<String, JwtError> {
         // Validate refresh token
         let claims = self.validate_refresh_token(refresh_token)?;
-        
+
         // Ensure the refresh token belongs to the same user
         if claims.sub != user_id {
             return Err(JwtError::InvalidClaims);
@@ -244,18 +245,24 @@ mod tests {
 
     #[test]
     fn test_jwt_token_generation_and_validation() {
-        let jwt_service = JwtService::new(TEST_SECRET, TEST_ISSUER.to_string(), TEST_AUDIENCE.to_string());
-        
-        let token = jwt_service.generate_token(
-            "user123",
-            "test@example.com",
-            "admin",
-            vec!["read".to_string(), "write".to_string()],
-            1,
-        ).unwrap();
+        let jwt_service = JwtService::new(
+            TEST_SECRET,
+            TEST_ISSUER.to_string(),
+            TEST_AUDIENCE.to_string(),
+        );
+
+        let token = jwt_service
+            .generate_token(
+                "user123",
+                "test@example.com",
+                "admin",
+                vec!["read".to_string(), "write".to_string()],
+                1,
+            )
+            .unwrap();
 
         let claims = jwt_service.validate_token(&token).unwrap();
-        
+
         assert_eq!(claims.sub, "user123");
         assert_eq!(claims.email, "test@example.com");
         assert_eq!(claims.role, "admin");
@@ -266,11 +273,15 @@ mod tests {
 
     #[test]
     fn test_refresh_token_generation_and_validation() {
-        let jwt_service = JwtService::new(TEST_SECRET, TEST_ISSUER.to_string(), TEST_AUDIENCE.to_string());
-        
+        let jwt_service = JwtService::new(
+            TEST_SECRET,
+            TEST_ISSUER.to_string(),
+            TEST_AUDIENCE.to_string(),
+        );
+
         let refresh_token = jwt_service.generate_refresh_token("user123", 7).unwrap();
         let claims = jwt_service.validate_refresh_token(&refresh_token).unwrap();
-        
+
         assert_eq!(claims.sub, "user123");
         assert_eq!(claims.role, "refresh");
         assert_eq!(claims.aud, format!("{}-refresh", TEST_AUDIENCE));
@@ -278,16 +289,22 @@ mod tests {
 
     #[test]
     fn test_token_expiration() {
-        let jwt_service = JwtService::new(TEST_SECRET, TEST_ISSUER.to_string(), TEST_AUDIENCE.to_string());
-        
-        // Generate token with very short expiration
-        let token = jwt_service.generate_token(
-            "user123",
-            "test@example.com",
-            "admin",
-            vec![],
-            0, // 0 hours = immediate expiration
-        ).unwrap();
+        let jwt_service = JwtService::new(
+            TEST_SECRET,
+            TEST_ISSUER.to_string(),
+            TEST_AUDIENCE.to_string(),
+        );
+
+        // Generate token with a past expiration
+        let token = jwt_service
+            .generate_token(
+                "user123",
+                "test@example.com",
+                "admin",
+                vec![],
+                -1, // negative hours = already expired
+            )
+            .unwrap();
 
         // Token should be expired
         assert!(jwt_service.is_token_expired(&token));
@@ -295,8 +312,12 @@ mod tests {
 
     #[test]
     fn test_extract_token_from_header() {
-        let jwt_service = JwtService::new(TEST_SECRET, TEST_ISSUER.to_string(), TEST_AUDIENCE.to_string());
-        
+        let jwt_service = JwtService::new(
+            TEST_SECRET,
+            TEST_ISSUER.to_string(),
+            TEST_AUDIENCE.to_string(),
+        );
+
         let valid_header = "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9";
         let invalid_header = "Basic dXNlcjpwYXNz";
         let no_header = "";
@@ -311,18 +332,24 @@ mod tests {
 
     #[test]
     fn test_refresh_access_token() {
-        let jwt_service = JwtService::new(TEST_SECRET, TEST_ISSUER.to_string(), TEST_AUDIENCE.to_string());
-        
+        let jwt_service = JwtService::new(
+            TEST_SECRET,
+            TEST_ISSUER.to_string(),
+            TEST_AUDIENCE.to_string(),
+        );
+
         let refresh_token = jwt_service.generate_refresh_token("user123", 7).unwrap();
-        
-        let new_access_token = jwt_service.refresh_access_token(
-            &refresh_token,
-            "user123",
-            "test@example.com",
-            "admin",
-            vec!["read".to_string()],
-            1,
-        ).unwrap();
+
+        let new_access_token = jwt_service
+            .refresh_access_token(
+                &refresh_token,
+                "user123",
+                "test@example.com",
+                "admin",
+                vec!["read".to_string()],
+                1,
+            )
+            .unwrap();
 
         let claims = jwt_service.validate_token(&new_access_token).unwrap();
         assert_eq!(claims.sub, "user123");

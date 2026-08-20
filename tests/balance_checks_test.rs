@@ -3,8 +3,8 @@
 //! This test suite validates the improved balance check patterns and
 //! ensures they catch all edge cases mentioned in the issue.
 
+use soroban_security_scanner::{scanners::SecurityScanner, vulnerabilities::VulnerabilityType};
 use std::path::Path;
-use stellar_security_scanner::{scanners::SecurityScanner, vulnerabilities::VulnerabilityType};
 
 #[test]
 fn test_insufficient_balance_detection() {
@@ -16,8 +16,10 @@ fn test_insufficient_balance_detection() {
             let to_balance = get_balance(to);
             
             // Direct balance subtraction without sufficient balance check
-            balances.insert(from, from_balance - amount);
-            balances.insert(to, to_balance + amount);
+            from_balance -= amount;
+            to_balance += amount;
+            balances.insert(from, from_balance);
+            balances.insert(to, to_balance);
         }
     "#;
 
@@ -43,8 +45,8 @@ fn test_balance_underflow_detection() {
             let current_balance = get_balance(env::current_contract_address());
             
             // Unsafe subtraction without underflow protection
-            let new_balance = current_balance - amount;
-            balances.insert(env::current_contract_address(), new_balance);
+            current_balance -= amount;
+            balances.insert(env::current_contract_address(), current_balance);
         }
     "#;
 
@@ -67,8 +69,8 @@ fn test_balance_overflow_detection() {
             let current_balance = get_balance(env::current_contract_address());
             
             // Unsafe addition without overflow protection
-            let new_balance = current_balance + amount;
-            balances.insert(env::current_contract_address(), new_balance);
+            current_balance += amount;
+            balances.insert(env::current_contract_address(), current_balance);
         }
     "#;
 
@@ -134,12 +136,13 @@ fn test_multiple_balance_operations_edge_cases() {
             let to_balance = get_balance(to);
             
             // Multiple balance operations without proper validation
-            balances.insert(from, from_balance - amount);  // Unsafe
-            balances.insert(to, to_balance + amount);      // Unsafe
+            from_balance -= amount;  // Unsafe
+            to_balance += amount;      // Unsafe
             
             // Fee deduction without checking if user has enough for both
             let final_balance = get_balance(from);
-            balances.insert(from, final_balance - fee);     // Unsafe
+            final_balance -= fee;     // Unsafe
+            balances.insert(from, final_balance);
         }
     "#;
 
@@ -163,13 +166,13 @@ fn test_bounds_validation_missing() {
     let test_code = r#"
         pub fn mint_unbounded(amount: i64) {
             let current_supply = total_supply();
-            let new_supply = current_supply + amount;  // No max limit check
+            current_supply += amount;  // No max limit check
             
-            total_supply.set(new_supply);
+            total_supply.set(current_supply);
             
             let user_balance = get_balance(env::current_contract_address());
-            let new_balance = user_balance + amount;   // No per-account limit
-            balances.insert(env::current_contract_address(), new_balance);
+            user_balance += amount;   // No per-account limit
+            balances.insert(env::current_contract_address(), user_balance);
         }
     "#;
 

@@ -52,11 +52,12 @@ pub trait SessionStore: Send + Sync {
     async fn get_session(&self, session_id: &str) -> Result<Option<SessionData>, SessionError>;
     async fn update_session(&self, session: SessionData) -> Result<(), SessionError>;
     async fn delete_session(&self, session_id: &str) -> Result<(), SessionError>;
-    async fn revoke_user_sessions(&self, user_id: &str) -> Result<(), SessionError>;
+    async fn revoke_user_sessions(&self, user_id: &str) -> Result<usize, SessionError>;
     async fn cleanup_expired_sessions(&self) -> Result<usize, SessionError>;
     async fn get_active_sessions(&self, user_id: &str) -> Result<Vec<SessionData>, SessionError>;
 }
 
+#[derive(Clone)]
 pub struct InMemorySessionStore {
     sessions: Arc<RwLock<HashMap<String, SessionData>>>,
 }
@@ -66,6 +67,12 @@ impl InMemorySessionStore {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+}
+
+impl Default for InMemorySessionStore {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -102,7 +109,9 @@ impl SessionStore for InMemorySessionStore {
             .sessions
             .write()
             .map_err(|e| SessionError::Storage(e.to_string()))?;
-        sessions.remove(session_id).ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
+        sessions
+            .remove(session_id)
+            .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
         Ok(())
     }
 
@@ -111,7 +120,7 @@ impl SessionStore for InMemorySessionStore {
             .sessions
             .write()
             .map_err(|e| SessionError::Storage(e.to_string()))?;
-        
+
         let mut count = 0;
         sessions.retain(|_, session| {
             if session.user_id == user_id {
@@ -121,7 +130,7 @@ impl SessionStore for InMemorySessionStore {
                 true
             }
         });
-        
+
         Ok(count)
     }
 
@@ -130,7 +139,7 @@ impl SessionStore for InMemorySessionStore {
             .sessions
             .write()
             .map_err(|e| SessionError::Storage(e.to_string()))?;
-        
+
         let now = Utc::now();
         let mut count = 0;
         sessions.retain(|_, session| {
@@ -141,7 +150,7 @@ impl SessionStore for InMemorySessionStore {
                 true
             }
         });
-        
+
         Ok(count)
     }
 
@@ -150,14 +159,16 @@ impl SessionStore for InMemorySessionStore {
             .sessions
             .read()
             .map_err(|e| SessionError::Storage(e.to_string()))?;
-        
+
         let now = Utc::now();
         let user_sessions: Vec<SessionData> = sessions
             .values()
-            .filter(|session| session.user_id == user_id && session.expires_at > now && session.is_active)
+            .filter(|session| {
+                session.user_id == user_id && session.expires_at > now && session.is_active
+            })
             .cloned()
             .collect();
-        
+
         Ok(user_sessions)
     }
 }
@@ -264,13 +275,13 @@ impl SessionStore for RedisSessionStore {
             .map_err(|e| SessionError::Redis(e.to_string()))?;
 
         let session_key = self.session_key(session_id);
-        
+
         // Get session data to find user_id
         let session: Option<SessionData> = self.get_session(session_id).await?;
-        
+
         if let Some(session_data) = session {
             let user_sessions_key = self.user_sessions_key(&session_data.user_id);
-            
+
             // Remove from user's session list
             conn.srem(&user_sessions_key, session_id)
                 .await
@@ -293,7 +304,7 @@ impl SessionStore for RedisSessionStore {
             .map_err(|e| SessionError::Redis(e.to_string()))?;
 
         let user_sessions_key = self.user_sessions_key(user_id);
-        
+
         // Get all session IDs for the user
         let session_ids: Vec<String> = conn
             .smembers(&user_sessions_key)
@@ -347,7 +358,7 @@ impl SessionStore for RedisSessionStore {
                     .exists(&session_key)
                     .await
                     .map_err(|e| SessionError::Redis(e.to_string()))?;
-                
+
                 if exists {
                     valid_sessions.push(session_id);
                 }
@@ -396,6 +407,7 @@ impl SessionStore for RedisSessionStore {
     }
 }
 
+#[derive(Clone)]
 pub struct SessionManager<S: SessionStore> {
     store: S,
     default_ttl: Duration,
@@ -526,7 +538,11 @@ impl<S: SessionStore> SessionManager<S> {
         Ok(())
     }
 
-    pub async fn get_session_metadata(&self, session_id: &str, key: &str) -> Result<Option<String>, SessionError> {
+    pub async fn get_session_metadata(
+        &self,
+        session_id: &str,
+        key: &str,
+    ) -> Result<Option<String>, SessionError> {
         let session = self
             .store
             .get_session(session_id)

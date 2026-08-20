@@ -2,11 +2,11 @@
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-    use stellar_security_scanner::{
+    use soroban_security_scanner::{
         config::ScannerConfig,
         scanners::{InvariantScanner, SecurityScanner},
     };
+    use std::path::PathBuf;
 
     #[test]
     fn test_security_scanner_vulnerable_contract() {
@@ -26,7 +26,7 @@ mod tests {
         // Should detect missing access control
         assert!(vulnerability_types.iter().any(|v| matches!(
             v,
-            stellar_security_scanner::vulnerabilities::VulnerabilityType::MissingAccessControl
+            soroban_security_scanner::vulnerabilities::VulnerabilityType::MissingAccessControl
         )));
     }
 
@@ -78,17 +78,17 @@ mod tests {
 
     #[test]
     fn test_analysis_result_creation() {
-        use stellar_security_scanner::{analysis::AnalysisResult, ScanResult};
+        use soroban_security_scanner::{analysis::AnalysisResult, ScanResult};
 
         let mut result1 = ScanResult::new("test1.rs".to_string());
         result1.vulnerabilities.push(
-            stellar_security_scanner::vulnerabilities::VulnerabilityType::MissingAccessControl,
+            soroban_security_scanner::vulnerabilities::VulnerabilityType::MissingAccessControl,
         );
 
         let mut result2 = ScanResult::new("test2.rs".to_string());
         result2
             .invariant_violations
-            .push(stellar_security_scanner::invariants::InvariantRule::BalanceNonNegative);
+            .push(soroban_security_scanner::invariants::InvariantRule::BalanceNonNegative);
 
         let results = vec![result1, result2];
         let analysis = AnalysisResult::new(results, 1000);

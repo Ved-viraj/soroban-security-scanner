@@ -84,7 +84,7 @@ impl SeverityHistory {
 
         // Order by time so first/latest are meaningful even if recorded loosely.
         let mut ordered: Vec<&ScoreSample> = samples.iter().collect();
-        ordered.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        ordered.sort_by_key(|a| a.timestamp);
 
         let first = ordered.first().unwrap().score;
         let latest = ordered.last().unwrap().score;

@@ -1,7 +1,7 @@
 //! Comprehensive tests for the Security Bounty Marketplace smart contract
 
 use soroban_sdk::{contracterror, Address, Env, Symbol};
-use stellar_security_scanner::bounty_marketplace::{
+use soroban_security_scanner::bounty_marketplace::{
     Bounty, BountyMarketplace, BountyStatus, MultiSigApproval, Severity,
 };
 
