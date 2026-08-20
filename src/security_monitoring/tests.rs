@@ -42,13 +42,46 @@ fn build_monitor(alerts: Arc<AtomicUsize>, sink: Arc<InMemorySiemSink>) -> Secur
         }));
     }
     let siem = SiemForwarder::new(SiemFormat::SplunkHec, Box::new(SharedSink(sink)));
-    SecurityMonitor::new(
+    let mut mon = SecurityMonitor::new(
         DetectionConfig::default(),
         AnomalyConfig::default(),
         dispatcher,
         PlaybookRegistry::with_defaults(),
         Some(siem),
-    )
+    );
+    complete_learning(&mut mon);
+    mon
+}
+
+/// Fast-forwards through the baseline learning period (Issue #435) by feeding
+/// benign observations (auth successes produce no findings/alerts) and then
+/// letting the 1-hour learning window elapse, so the monitor starts Active.
+/// Driven by event timestamps — deterministic, no real waiting. The window is
+/// anchored just before the timestamps the tests use (1_700_000_000 and 1000)
+/// so the computed baseline is never treated as expired.
+fn complete_learning(mon: &mut SecurityMonitor) {
+    // One hour before the test event timestamps.
+    let start = 1_700_000_000 - 3_600;
+    for i in 0..15 {
+        mon.ingest(
+            &SecurityEvent::new(
+                start + i,
+                EventKind::AuthSuccess,
+                Component::Auth,
+                SecuritySeverity::Info,
+            )
+            .with_principal("warmup"),
+        );
+    }
+    mon.ingest(
+        &SecurityEvent::new(
+            start + 3_600,
+            EventKind::AuthSuccess,
+            Component::Auth,
+            SecuritySeverity::Info,
+        )
+        .with_principal("warmup"),
+    );
 }
 
 #[test]
@@ -66,12 +99,14 @@ fn critical_attack_is_detected_alerted_and_auto_responded() {
     .with_ip("8.8.8.8")
     .with_detail("path traversal in /api/upload");
 
+    // SIEM records before this event include the learning-period warm-up.
+    let before_siem = sink.len();
     let outcome = mon.ingest(&event);
 
     // Detected as critical.
     assert_eq!(outcome.findings[0].severity, SecuritySeverity::Critical);
-    // SIEM received the raw event.
-    assert_eq!(sink.len(), 1);
+    // SIEM received exactly this raw event.
+    assert_eq!(sink.len() - before_siem, 1);
     // P1 fans out to all four channels.
     assert_eq!(alerts.load(Ordering::Relaxed), 4);
     // The critical-attack playbook ran with on-call paging.
@@ -150,6 +185,7 @@ fn multi_component_monitoring() {
     let mut mon = build_monitor(alerts, Arc::clone(&sink));
 
     // Events from network, database and application layers.
+    let before_siem = sink.len();
     for (component, kind) in [
         (Component::Network, EventKind::AttackSignature),
         (Component::Database, EventKind::SensitiveChange),
@@ -161,7 +197,7 @@ fn multi_component_monitoring() {
         );
     }
     // Every event was forwarded to the SIEM regardless of component.
-    assert_eq!(sink.len(), 3);
+    assert_eq!(sink.len() - before_siem, 3);
 }
 
 #[test]
@@ -223,8 +259,10 @@ fn benign_events_still_feed_siem() {
             Box::new(CountSink(Arc::clone(&records))),
         )),
     );
+    complete_learning(&mut mon);
 
     // An auth success is benign (no finding) but still telemetry.
+    let before = *records.lock().unwrap();
     let outcome = mon.ingest(
         &SecurityEvent::new(
             1000,
@@ -235,5 +273,5 @@ fn benign_events_still_feed_siem() {
         .with_principal("alice"),
     );
     assert!(outcome.findings.is_empty());
-    assert_eq!(*records.lock().unwrap(), 1);
+    assert_eq!(*records.lock().unwrap() - before, 1);
 }

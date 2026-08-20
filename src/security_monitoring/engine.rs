@@ -7,6 +7,9 @@
 
 use crate::security_monitoring::alerting::{AlertDispatcher, DispatchResult};
 use crate::security_monitoring::anomaly::{AnomalyConfig, AnomalyDetector};
+use crate::security_monitoring::baseline::{
+    BaselineConfig, BaselineConfigError, BaselineLearner, BaselineStatistics, BaselineStatus,
+};
 use crate::security_monitoring::detection::{DetectionConfig, Finding, RuleEngine};
 use crate::security_monitoring::event::{SecurityEvent, SecuritySeverity};
 use crate::security_monitoring::incident::{Incident, IncidentStatus, Priority};
@@ -30,6 +33,9 @@ pub struct ProcessOutcome {
     pub incidents: Vec<Uuid>,
     /// Whether the ML detector flagged the event as anomalous.
     pub anomalous: bool,
+    /// The anomaly z-score, when the detector had enough data to score
+    /// (available for diagnostics even during the baseline learning period).
+    pub anomaly_z: Option<f64>,
     /// Alerts dispatched, keyed by incident id.
     pub dispatched: Vec<DispatchResult>,
     /// Playbook runs triggered.
@@ -57,11 +63,14 @@ pub struct SecurityMonitor {
     incidents: HashMap<Uuid, Incident>,
     /// Most recent open incident per subject, for correlation.
     open_by_subject: HashMap<String, Uuid>,
+    /// Baseline learning for anomaly detection (Issue #435).
+    baseline: BaselineLearner,
 }
 
 impl SecurityMonitor {
-    /// Builds a monitor. The dispatcher should already have its channels
-    /// registered; SIEM forwarding is optional.
+    /// Builds a monitor with the default baseline configuration (1-hour
+    /// learning period, 30-day expiry). The dispatcher should already have
+    /// its channels registered; SIEM forwarding is optional.
     pub fn new(
         detection: DetectionConfig,
         anomaly: AnomalyConfig,
@@ -69,7 +78,28 @@ impl SecurityMonitor {
         playbooks: PlaybookRegistry,
         siem: Option<SiemForwarder>,
     ) -> Self {
-        Self {
+        Self::with_baseline_config(
+            detection,
+            anomaly,
+            BaselineConfig::default(),
+            dispatcher,
+            playbooks,
+            siem,
+        )
+        .expect("default baseline configuration is valid")
+    }
+
+    /// Builds a monitor with a custom baseline configuration. Returns an
+    /// error for invalid configurations (see [`BaselineConfig::validate`]).
+    pub fn with_baseline_config(
+        detection: DetectionConfig,
+        anomaly: AnomalyConfig,
+        baseline: BaselineConfig,
+        dispatcher: AlertDispatcher,
+        playbooks: PlaybookRegistry,
+        siem: Option<SiemForwarder>,
+    ) -> Result<Self, BaselineConfigError> {
+        Ok(Self {
             rules: RuleEngine::new(detection),
             anomaly: AnomalyDetector::new(anomaly),
             dispatcher,
@@ -77,12 +107,28 @@ impl SecurityMonitor {
             siem,
             incidents: HashMap::new(),
             open_by_subject: HashMap::new(),
-        }
+            baseline: BaselineLearner::new(baseline)?,
+        })
     }
 
     /// Ingests and fully processes one security event.
+    ///
+    /// The baseline learner always computes anomaly scores, but while no
+    /// valid baseline exists (Learning / Resetting / Degraded) findings are
+    /// recorded for diagnostics only — no incidents are opened and no alerts
+    /// are dispatched. Once the baseline is Active, normal detection resumes.
     pub fn ingest(&mut self, event: &SecurityEvent) -> ProcessOutcome {
         let mut outcome = ProcessOutcome::default();
+
+        // 0. Advance the baseline state machine (learning completion, expiry).
+        let prev_status = self.baseline.status();
+        self.baseline.tick(event.at);
+        if self.baseline.status() == BaselineStatus::Active && prev_status != BaselineStatus::Active
+        {
+            // The baseline was just computed: seed the detector so scores use
+            // the calculated statistics instead of a cold start.
+            self.seed_anomaly_from_baseline();
+        }
 
         // 1. Always forward to SIEM (raw telemetry), best-effort.
         if let Some(siem) = &self.siem {
@@ -90,32 +136,53 @@ impl SecurityMonitor {
         }
 
         // 2. ML anomaly scoring (1.0 per occurrence of this event kind/subject).
+        //    Scores are always computed, including during the learning period
+        //    (observation mode), so they remain available for diagnostics.
         let subject = event.correlation_key();
-        if let Some(score) = self
-            .anomaly
-            .observe(&format!("{subject}:{:?}", event.kind), 1.0)
-        {
+        let metric = format!("{subject}:{:?}", event.kind);
+        if let Some(score) = self.anomaly.observe(&metric, 1.0) {
             outcome.anomalous = score.anomalous;
+            outcome.anomaly_z = Some(score.z);
         }
 
-        // 3. Rule detection.
+        // 3. The baseline learner collects observations while not Active.
+        self.baseline.record(&metric, 1.0, event.at);
+
+        // 4. Rule detection (recorded for diagnostics in every state).
         outcome.findings = self.rules.evaluate(event);
 
-        // 4. Correlate each finding into an incident and respond.
-        for finding in &outcome.findings {
-            let incident_id = self.correlate(finding, event.at);
-            outcome.incidents.push(incident_id);
+        // 5. Correlate findings into incidents and respond, but only once a
+        //    valid baseline exists — never during Learning/Resetting/Degraded.
+        if self.baseline.status() == BaselineStatus::Active {
+            for finding in &outcome.findings {
+                let incident_id = self.correlate(finding, event.at);
+                outcome.incidents.push(incident_id);
 
-            let incident = self.incidents.get(&incident_id).unwrap().clone();
-            // Alert.
-            outcome.dispatched.push(self.dispatcher.dispatch(&incident));
-            // Automated response.
-            outcome
-                .playbook_runs
-                .extend(self.playbooks.execute(&incident));
+                let incident = self.incidents.get(&incident_id).unwrap().clone();
+                // Alert.
+                outcome.dispatched.push(self.dispatcher.dispatch(&incident));
+                // Automated response.
+                outcome
+                    .playbook_runs
+                    .extend(self.playbooks.execute(&incident));
+            }
         }
 
         outcome
+    }
+
+    /// Copies the freshly calculated baseline statistics into the anomaly
+    /// detector so post-learning z-scores are evaluated against the baseline.
+    fn seed_anomaly_from_baseline(&mut self) {
+        let stats: Vec<(String, u64, f64, f64)> = self
+            .baseline
+            .baselines()
+            .values()
+            .map(|s| (s.metric.clone(), s.count, s.mean, s.stddev))
+            .collect();
+        for (metric, count, mean, stddev) in stats {
+            self.anomaly.seed_baseline(&metric, count, mean, stddev);
+        }
     }
 
     /// Folds a finding into an existing open incident for the subject (within
@@ -214,6 +281,35 @@ impl SecurityMonitor {
             .map(|i| i.severity)
             .max()
     }
+
+    // ---- Baseline learning (Issue #435) ----
+
+    /// Current baseline lifecycle state.
+    pub fn baseline_status(&self) -> BaselineStatus {
+        self.baseline.status()
+    }
+
+    /// The active baseline configuration.
+    pub fn baseline_config(&self) -> BaselineConfig {
+        self.baseline.config()
+    }
+
+    /// Baseline statistics per metric (empty unless a baseline is Active).
+    pub fn baseline_statistics(&self) -> HashMap<String, BaselineStatistics> {
+        self.baseline.baselines().clone()
+    }
+
+    /// Invalidates the current baseline and observation state and starts a
+    /// fresh learning period. Returns the resulting status (Learning).
+    /// `now` is the current unix-seconds timestamp.
+    pub fn reset_baseline(&mut self, now: i64) -> BaselineStatus {
+        self.baseline.reset(now);
+        // The detector's running statistics describe the old baseline; clear
+        // them so the new learning period starts from a clean slate.
+        self.anomaly.reset();
+        self.baseline.tick(now);
+        self.baseline.status()
+    }
 }
 
 #[cfg(test)]
@@ -253,13 +349,42 @@ mod tests {
                 count: Arc::clone(&counter),
             }));
         }
-        SecurityMonitor::new(
+        let mut mon = SecurityMonitor::new(
             DetectionConfig::default(),
             AnomalyConfig::default(),
             dispatcher,
             PlaybookRegistry::with_defaults(),
             None,
-        )
+        );
+        complete_learning(&mut mon);
+        mon
+    }
+
+    /// Fast-forwards through the baseline learning period: feeds enough
+    /// benign observations (auth successes produce no findings) to establish
+    /// a valid baseline, then lets the learning period elapse so the monitor
+    /// starts in Active state. Deterministic — driven by event timestamps.
+    fn complete_learning(mon: &mut SecurityMonitor) {
+        for i in 0..15 {
+            mon.ingest(
+                &SecurityEvent::new(
+                    1000 + i,
+                    EventKind::AuthSuccess,
+                    Component::Auth,
+                    SecuritySeverity::Info,
+                )
+                .with_principal("warmup"),
+            );
+        }
+        mon.ingest(
+            &SecurityEvent::new(
+                1000 + 3600,
+                EventKind::AuthSuccess,
+                Component::Auth,
+                SecuritySeverity::Info,
+            )
+            .with_principal("warmup"),
+        );
     }
 
     fn auth_fail(at: i64, who: &str) -> SecurityEvent {
@@ -402,5 +527,259 @@ mod tests {
         // Detected same second as the event → MTTD 0.
         assert!(mon.meets_mttd_target());
         assert_eq!(mon.worst_open_severity(), Some(SecuritySeverity::Critical));
+    }
+
+    // ---- Baseline learning (Issue #435) ----
+
+    /// A monitor that stays in the default (Learning) state — no warm-up.
+    fn fresh_monitor(counter: Arc<AtomicUsize>) -> SecurityMonitor {
+        let mut dispatcher = AlertDispatcher::new(AlertRouting::default());
+        for kind in [
+            ChannelKind::Email,
+            ChannelKind::Slack,
+            ChannelKind::Sms,
+            ChannelKind::PagerDuty,
+        ] {
+            dispatcher.register(Box::new(CountingChannel {
+                kind,
+                count: Arc::clone(&counter),
+            }));
+        }
+        SecurityMonitor::new(
+            DetectionConfig::default(),
+            AnomalyConfig::default(),
+            dispatcher,
+            PlaybookRegistry::with_defaults(),
+            None,
+        )
+    }
+
+    fn auth_failure(at: i64, who: &str) -> SecurityEvent {
+        SecurityEvent::new(
+            at,
+            EventKind::AuthFailure,
+            Component::Auth,
+            SecuritySeverity::Low,
+        )
+        .with_principal(who)
+        .with_ip("10.0.0.1")
+    }
+
+    #[test]
+    fn initial_state_is_learning() {
+        let mon = fresh_monitor(Arc::new(AtomicUsize::new(0)));
+        assert_eq!(mon.baseline_status(), BaselineStatus::Learning);
+        // The default learning period is one hour.
+        assert_eq!(mon.baseline_config().learning_period_seconds, 3600);
+        assert_eq!(
+            mon.baseline_config().baseline_expiry_seconds,
+            30 * 24 * 60 * 60
+        );
+    }
+
+    #[test]
+    fn learning_suppresses_incidents_and_alerts_but_scores_are_computed() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut mon = fresh_monitor(Arc::clone(&counter));
+
+        // Enough events for both the rule engine and the anomaly detector.
+        let mut last = ProcessOutcome::default();
+        for i in 0..15 {
+            last = mon.ingest(&auth_failure(1000 + i, "alice"));
+        }
+        // Findings are still computed (observation mode)...
+        assert!(!last.findings.is_empty());
+        // ...and anomaly scores are still calculated...
+        assert!(
+            last.anomaly_z.is_some(),
+            "scores must be computed during learning"
+        );
+        // ...but no incidents were opened and no alerts were dispatched.
+        assert!(last.incidents.is_empty());
+        assert!(last.dispatched.is_empty());
+        assert!(mon.incidents().is_empty());
+        assert_eq!(counter.load(Ordering::Relaxed), 0);
+        assert_eq!(mon.baseline_status(), BaselineStatus::Learning);
+    }
+
+    #[test]
+    fn learning_completion_activates_detection() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut mon = fresh_monitor(Arc::clone(&counter));
+
+        // Fifteen brute-force failures during learning (below the 5-in-window
+        // threshold is irrelevant — everything is suppressed anyway).
+        for i in 0..15 {
+            mon.ingest(&auth_failure(1000 + i, "alice"));
+        }
+        assert_eq!(mon.baseline_status(), BaselineStatus::Learning);
+        assert!(mon.incidents().is_empty());
+
+        // An event at/past the learning deadline finalizes the baseline.
+        let outcome = mon.ingest(&auth_failure(1000 + 3600, "alice"));
+        assert_eq!(mon.baseline_status(), BaselineStatus::Active);
+        assert!(!mon.baseline_statistics().is_empty());
+
+        // A single failure past the deadline should not fire the brute-force
+        // rule (needs 5 in the window) — but the pipeline is now live.
+        assert!(outcome.findings.is_empty());
+
+        // Now a real burst fires incidents and alerts.
+        let mut last = ProcessOutcome::default();
+        for i in 0..5 {
+            last = mon.ingest(&auth_failure(1000 + 3700 + i, "bob"));
+        }
+        assert!(!last.findings.is_empty());
+        assert_eq!(last.incidents.len(), 1);
+        assert_eq!(mon.incidents().len(), 1);
+        assert!(counter.load(Ordering::Relaxed) >= 2);
+    }
+
+    #[test]
+    fn insufficient_observations_leave_monitor_degraded_not_active() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut mon = fresh_monitor(counter);
+        // Only 3 observations in the whole learning window (min is 10).
+        for i in 0..3 {
+            mon.ingest(&auth_failure(1000 + i, "alice"));
+        }
+        mon.ingest(&auth_failure(1000 + 3600, "alice"));
+        assert_eq!(mon.baseline_status(), BaselineStatus::Degraded);
+        assert!(mon.baseline_statistics().is_empty());
+
+        // Detection stays suppressed in Degraded: no incidents from findings.
+        let mut last = ProcessOutcome::default();
+        for i in 0..6 {
+            last = mon.ingest(&auth_failure(10_000 + i, "mallory"));
+        }
+        assert!(!last.findings.is_empty());
+        assert!(mon.incidents().is_empty());
+        assert_eq!(mon.baseline_status(), BaselineStatus::Degraded);
+    }
+
+    #[test]
+    fn baseline_expiry_degrades_after_thirty_days() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut mon = fresh_monitor(counter);
+        for i in 0..15 {
+            mon.ingest(&auth_failure(1000 + i, "alice"));
+        }
+        mon.ingest(&auth_failure(1000 + 3600, "alice"));
+        assert_eq!(mon.baseline_status(), BaselineStatus::Active);
+
+        let day = 24 * 60 * 60;
+        let calculated = 1000 + 3600;
+        // 29 days later: still active.
+        mon.ingest(&auth_failure(calculated + 29 * day, "alice"));
+        assert_eq!(mon.baseline_status(), BaselineStatus::Active);
+
+        // Past 30 days: degraded.
+        mon.ingest(&auth_failure(calculated + 30 * day + 1, "alice"));
+        assert_eq!(mon.baseline_status(), BaselineStatus::Degraded);
+
+        // Suppressed again: no incidents while degraded.
+        let mut last = ProcessOutcome::default();
+        for i in 0..6 {
+            last = mon.ingest(&auth_failure(calculated + 31 * day + i, "eve"));
+        }
+        assert!(!last.findings.is_empty());
+        assert!(mon.incidents().is_empty());
+    }
+
+    #[test]
+    fn reset_invalidates_baseline_and_restarts_learning() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut mon = fresh_monitor(counter);
+        for i in 0..15 {
+            mon.ingest(&auth_failure(1000 + i, "alice"));
+        }
+        mon.ingest(&auth_failure(1000 + 3600, "alice"));
+        assert_eq!(mon.baseline_status(), BaselineStatus::Active);
+        assert!(!mon.baseline_statistics().is_empty());
+
+        // Reset from Active: baseline invalidated, learning restarts.
+        let status = mon.reset_baseline(20_000);
+        assert_eq!(status, BaselineStatus::Learning);
+        assert_eq!(mon.baseline_status(), BaselineStatus::Learning);
+        assert!(mon.baseline_statistics().is_empty());
+
+        // Detection is suppressed again until the new window completes.
+        let mut last = ProcessOutcome::default();
+        for i in 0..15 {
+            last = mon.ingest(&auth_failure(20_000 + i, "dave"));
+        }
+        assert!(!last.findings.is_empty());
+        assert!(mon.incidents().is_empty());
+        assert_eq!(mon.baseline_status(), BaselineStatus::Learning);
+
+        // The new window completes and detection activates again.
+        mon.ingest(&auth_failure(20_000 + 3600, "dave"));
+        assert_eq!(mon.baseline_status(), BaselineStatus::Active);
+        for i in 0..5 {
+            mon.ingest(&auth_failure(30_000 + i, "dave"));
+        }
+        assert_eq!(mon.incidents().len(), 1);
+    }
+
+    #[test]
+    fn repeated_resets_do_not_corrupt_state() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut mon = fresh_monitor(counter);
+        for _ in 0..50 {
+            let status = mon.reset_baseline(1000);
+            assert_eq!(status, BaselineStatus::Learning);
+            assert!(mon.baseline_statistics().is_empty());
+            assert!(mon.incidents().is_empty());
+        }
+    }
+
+    #[test]
+    fn concurrent_resets_are_serialized_safely() {
+        use std::sync::Mutex;
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut mon = fresh_monitor(Arc::clone(&counter));
+        for i in 0..15 {
+            mon.ingest(&auth_failure(1000 + i, "alice"));
+        }
+        mon.ingest(&auth_failure(1000 + 3600, "alice"));
+        assert_eq!(mon.baseline_status(), BaselineStatus::Active);
+
+        // Share the monitor behind a mutex (as the HTTP layer does) and fire
+        // concurrent resets. All resets use the same deterministic timestamp.
+        let shared = Arc::new(Mutex::new(mon));
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let shared = Arc::clone(&shared);
+            handles.push(std::thread::spawn(move || {
+                for _ in 0..25 {
+                    let mut guard = shared.lock().unwrap();
+                    let status = guard.reset_baseline(50_000);
+                    assert_eq!(status, BaselineStatus::Learning);
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let mut mon = Arc::try_unwrap(shared)
+            .ok()
+            .unwrap()
+            .into_inner()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(mon.baseline_status(), BaselineStatus::Learning);
+        assert!(mon.baseline_statistics().is_empty());
+
+        // Still functional: a fresh learning window completes normally.
+        for i in 0..15 {
+            mon.ingest(&auth_failure(50_000 + i, "carol"));
+        }
+        mon.ingest(&auth_failure(50_000 + 3600, "carol"));
+        assert_eq!(mon.baseline_status(), BaselineStatus::Active);
+        for i in 0..5 {
+            mon.ingest(&auth_failure(60_000 + i, "carol"));
+        }
+        assert_eq!(mon.incidents().len(), 1);
     }
 }

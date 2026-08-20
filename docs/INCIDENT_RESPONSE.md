@@ -312,11 +312,125 @@ kubectl get pods -w
 
 ---
 
+## 8.5 Baseline Learning for Anomaly Detection (Issue #435)
+
+### 8.5.1 What Baseline Learning Is
+
+When the security monitor first starts (or after an administrator resets the
+baseline), the anomaly detector has no historical data to judge behaviour
+against. Without a learning period, perfectly normal traffic on day one would
+be flagged as suspicious, generating alert fatigue during the most critical
+post-deployment window.
+
+The monitor therefore runs a **baseline learning period** before anomaly
+detection is allowed to alert:
+
+1. During **Learning**, the monitor keeps computing anomaly scores (so the
+   model warms up on real traffic) but **suppresses alerts and incidents**.
+   Findings are still recorded for diagnostics.
+2. When the learning period completes, the `BaselineLearner` computes
+   baseline statistics — **mean, standard deviation, p95, p99** — for every
+   monitored metric from the observations it collected.
+3. With a valid baseline the monitor becomes **Active** and normal detection
+   resumes, using the calculated statistics.
+
+### 8.5.2 Defaults and Configuration
+
+| Setting | Default | Notes |
+|---------|---------|-------|
+| `learning_period_seconds` | **3600** (1 hour) | Configurable via `BaselineConfig` |
+| `baseline_expiry_seconds` | **2,592,000** (30 days) | A baseline older than this is stale |
+| `min_observations` | 10 | Minimum samples per metric for a trustworthy baseline |
+
+Invalid configurations (e.g. zero/negative learning periods) are rejected at
+construction.
+
+### 8.5.3 Baseline States
+
+The engine exposes a `baseline_status` with four states:
+
+| State | Meaning |
+|-------|---------|
+| `Learning` | Collecting observations; scores computed, alerts/incidents suppressed |
+| `Active` | Valid baseline; normal detection behaviour |
+| `Resetting` | Transient state during a baseline reset |
+| `Degraded` | Baseline missing or stale (expired / insufficient data); detection suppressed until reset |
+
+Lifecycle:
+
+```
+initialisation → Learning → (period elapses, baseline valid) → Active
+Active → (baseline > 30 days old) → Degraded
+Active/Degraded → (admin reset) → Resetting → Learning
+Learning → (insufficient observations) → Degraded
+```
+
+A missing or insufficient baseline is **never** treated as active: if the
+learning period ends without enough observations, or the baseline expires,
+the monitor degrades and keeps alerting suppressed rather than generating
+misleading alerts.
+
+### 8.5.4 Why Alerts Are Suppressed During Learning
+
+Alerting without a baseline produces false positives (new deployments look
+like DDoS attacks). Suppressing during the learning window lets the system
+observe its own normal traffic and only start alerting once the baseline is
+trustworthy. The suppression happens at the engine boundary: anomaly scores
+and rule findings are still computed and available for diagnostics, but no
+incidents are opened and no alerts are dispatched.
+
+### 8.5.5 Baseline Expiry (30 Days) and the Degraded State
+
+A baseline more than **30 days** old no longer reflects current traffic
+patterns (for example after a major feature launch or traffic shift). The
+monitor then:
+
+- transitions to `Degraded`;
+- logs a **WARNING** recommending a baseline reset (once, at the transition);
+- keeps collecting observations;
+- keeps alerts/incidents suppressed until the baseline is reset.
+
+Operators should interpret a `Degraded`/stale-baseline warning as: *"the
+current baseline is too old to trust — reset it after confirming traffic is
+stable."*
+
+### 8.5.6 Resetting the Baseline (Admin Only)
+
+```
+POST /api/v1/security-monitoring/reset-baseline
+Authorization: Bearer <admin jwt>
+```
+
+- **Admin-only**: unauthenticated requests are rejected with `401`;
+  non-admin roles with `403`.
+- On success the endpoint returns `200` with a JSON body containing
+  `baseline_status: "Learning"` and the configured learning period.
+- Reset behaviour:
+  1. The monitor enters `Resetting`.
+  2. The current baseline and observation state are invalidated/cleared.
+  3. A fresh 1-hour learning period starts (`Learning`).
+
+After a reset, operators should expect:
+
+- Anomaly **scores** continue to be computed immediately.
+- Alerts/incidents are **suppressed** for the new learning period (default
+  1 hour).
+- Detection resumes automatically once the new baseline is calculated —
+  provided enough observations were collected; otherwise the monitor goes
+  `Degraded` and stays suppressed until another reset.
+
+Reset after major infrastructure changes, configuration changes, or traffic
+pattern shifts — and only when traffic has been stable enough to re-learn
+from.
+
+---
+
 ## 9. Document Control
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-06-28 | Emmanuel-Ugochukwu1 | Initial incident response procedures (Issue #338) |
+| 1.1 | 2026-08-20 | Codebuff | Added baseline learning for anomaly detection (Issue #435) |
 
 ---
 

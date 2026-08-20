@@ -93,6 +93,17 @@ pub mod db_pool;
 // Compiles cleanly without any feature gates.
 pub mod protocol_analysis;
 
+// Real-time security monitoring, alerting, SIEM and incident response
+// (issue #333). Self-contained and compiles cleanly under default features.
+pub mod security_monitoring;
+pub use security_monitoring::{
+    AlertDispatcher, AlertMessage, AlertRouting, AnomalyConfig, AnomalyDetector, AnomalyScore,
+    BaselineConfig, BaselineLearner, BaselineStatistics, BaselineStatus, ChannelKind, Component,
+    DashboardSnapshot, DetectionConfig, DispatchResult, EventKind, Finding, Incident,
+    IncidentStatus, Priority, ProcessOutcome, ResetBaselineResponse, RuleEngine, SecurityEvent,
+    SecurityMonitor, SecurityMonitoringApiState, SecuritySeverity,
+};
+
 // === Broken modules gated behind feature flag ===
 // Each module has pre-existing compilation errors (borrow checker violations,
 // missing trait impls, type mismatches, unresolved imports) that are being
