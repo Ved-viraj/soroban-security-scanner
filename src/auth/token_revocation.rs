@@ -8,7 +8,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 
@@ -33,6 +33,11 @@ pub struct RevokedToken {
     pub original_expiry: DateTime<Utc>,
 }
 
+/// Index of the tokens we've seen for each user: `user_id -> (jti -> original expiry)`.
+/// Kept separate from the revoked set so `revoke_all_user_tokens` can enumerate a
+/// user's active tokens and the expiry is available for pruning.
+type UserTokenIndex = HashMap<String, HashMap<String, DateTime<Utc>>>;
+
 /// Token Revocation List — stores revoked JWT IDs
 ///
 /// This implementation uses an in-memory store with RwLock for thread safety.
@@ -41,8 +46,10 @@ pub struct RevokedToken {
 pub struct TokenRevocationList {
     /// Map of jti -> RevokedToken
     revoked_tokens: Arc<RwLock<HashMap<String, RevokedToken>>>,
-    /// Map of user_id -> Set of jti (for quick user-level revocation)
-    user_tokens: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+    /// Map of user_id -> (jti -> original expiry) for every token we've seen
+    /// issued to the user. This is what lets `revoke_all_user_tokens` find the
+    /// user's *active* tokens; without it there is nothing to revoke in bulk.
+    user_tokens: Arc<RwLock<UserTokenIndex>>,
 }
 
 impl TokenRevocationList {
@@ -52,6 +59,22 @@ impl TokenRevocationList {
             revoked_tokens: Arc::new(RwLock::new(HashMap::new())),
             user_tokens: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Record a token that has just been issued to a user.
+    ///
+    /// The revocation list is a deny-list, so it can only force-invalidate a
+    /// token whose jti it knows about. Callers (e.g. `JwtService::generate_token`)
+    /// register every issued token here so that a later `revoke_all_user_tokens`
+    /// can actually reach the tokens that are still active. This does *not*
+    /// revoke the token — it only remembers that it exists.
+    pub fn track_issued_token(&self, jti: &str, user_id: &str, original_expiry: DateTime<Utc>) {
+        self.user_tokens
+            .write()
+            .unwrap()
+            .entry(user_id.to_string())
+            .or_default()
+            .insert(jti.to_string(), original_expiry);
     }
 
     /// Revoke a single token by its jti
@@ -73,26 +96,41 @@ impl TokenRevocationList {
             .unwrap()
             .entry(user_id.to_string())
             .or_default()
-            .insert(jti.to_string());
+            .insert(jti.to_string(), original_expiry);
     }
 
     /// Revoke ALL tokens for a specific user
     ///
     /// This is called when a user changes their password or when an account
-    /// compromise is detected. All active JWTs for the user are immediately
-    /// invalidated.
+    /// compromise is detected. Every token we've tracked for the user is added
+    /// to the revoked set so it is rejected by `validate_token` from now on,
+    /// even though its signature is still cryptographically valid.
+    ///
+    /// The operation is idempotent: tokens that are already revoked are left in
+    /// place, and the user's token index is preserved so tokens issued after the
+    /// revocation are still tracked. Entries are cleaned up by `prune_expired`
+    /// once the underlying tokens pass their natural expiry.
     pub fn revoke_all_user_tokens(&self, user_id: &str) -> Result<usize, RevocationError> {
-        let user_tokens = self.user_tokens.read().unwrap();
-        let jtis = user_tokens.get(user_id).cloned().unwrap_or_default();
-        drop(user_tokens);
+        let tokens = self
+            .user_tokens
+            .read()
+            .unwrap()
+            .get(user_id)
+            .cloned()
+            .unwrap_or_default();
 
-        let count = jtis.len();
-        for jti in &jtis {
-            self.revoked_tokens.write().unwrap().remove(jti);
+        let now = Utc::now();
+        let mut revoked = self.revoked_tokens.write().unwrap();
+        for (jti, original_expiry) in &tokens {
+            revoked.entry(jti.clone()).or_insert_with(|| RevokedToken {
+                jti: jti.clone(),
+                user_id: user_id.to_string(),
+                revoked_at: now,
+                original_expiry: *original_expiry,
+            });
         }
 
-        self.user_tokens.write().unwrap().remove(user_id);
-        Ok(count)
+        Ok(tokens.len())
     }
 
     /// Check if a token is revoked by its jti
@@ -104,7 +142,11 @@ impl TokenRevocationList {
     ///
     /// Entries whose original token has expired (past its `exp` claim) are
     /// safe to remove — the token would be rejected by normal expiry validation
-    /// anyway. This should be called periodically by a background job.
+    /// anyway. This should be called periodically by a background job. Expired
+    /// jtis are dropped from both the revoked set and the per-user index so
+    /// neither map grows without bound.
+    ///
+    /// Returns the number of revoked entries removed.
     pub fn prune_expired(&self) -> usize {
         let now = Utc::now();
         let mut revoked = self.revoked_tokens.write().unwrap();
@@ -118,15 +160,14 @@ impl TokenRevocationList {
 
         let count = to_remove.len();
         for jti in &to_remove {
-            if let Some(token) = revoked.remove(jti) {
-                if let Some(jtis) = user_tokens.get_mut(&token.user_id) {
-                    jtis.remove(jti);
-                    if jtis.is_empty() {
-                        user_tokens.remove(&token.user_id);
-                    }
-                }
-            }
+            revoked.remove(jti);
         }
+
+        // Drop expired jtis from the per-user index and remove users left empty.
+        user_tokens.retain(|_, jtis| {
+            jtis.retain(|_, expiry| *expiry >= now);
+            !jtis.is_empty()
+        });
 
         count
     }
@@ -139,7 +180,10 @@ impl TokenRevocationList {
     /// Get all revoked tokens for a user (for debugging/admin)
     pub fn get_user_revoked_tokens(&self, user_id: &str) -> Vec<RevokedToken> {
         let user_tokens = self.user_tokens.read().unwrap();
-        let jtis = user_tokens.get(user_id).cloned().unwrap_or_default();
+        let jtis: Vec<String> = user_tokens
+            .get(user_id)
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default();
         drop(user_tokens);
 
         let revoked = self.revoked_tokens.read().unwrap();
@@ -187,9 +231,34 @@ mod tests {
 
         assert_eq!(list.count(), 4);
 
+        // Bulk-revoking user1 reports the 3 tokens it acted on. It is
+        // non-destructive: already-revoked tokens stay revoked and user2 is
+        // untouched, so the total revoked count is unchanged.
         let revoked = list.revoke_all_user_tokens("user1").unwrap();
         assert_eq!(revoked, 3);
-        assert_eq!(list.count(), 1); // Only user2's token remains
+        assert_eq!(list.count(), 4);
+    }
+
+    #[test]
+    fn test_revoke_all_revokes_active_issued_tokens() {
+        let list = TokenRevocationList::new();
+        let expiry = Utc::now() + Duration::hours(1);
+
+        // Three active tokens issued to the user, none revoked yet.
+        let jtis: Vec<String> = (0..3).map(|_| Uuid::new_v4().to_string()).collect();
+        for jti in &jtis {
+            list.track_issued_token(jti, "user1", expiry);
+            assert!(!list.is_revoked(jti));
+        }
+        assert_eq!(list.count(), 0);
+
+        // Password change / compromise -> every active token is now revoked.
+        let revoked = list.revoke_all_user_tokens("user1").unwrap();
+        assert_eq!(revoked, 3);
+        for jti in &jtis {
+            assert!(list.is_revoked(jti));
+        }
+        assert_eq!(list.count(), 3);
     }
 
     #[test]
@@ -218,21 +287,26 @@ mod tests {
         let list = TokenRevocationList::new();
         let expiry = Utc::now() + Duration::hours(24);
 
-        // User logs in on 3 devices
+        // User logs in on 3 devices — each issued token is tracked.
         let jti1 = Uuid::new_v4().to_string();
         let jti2 = Uuid::new_v4().to_string();
         let jti3 = Uuid::new_v4().to_string();
-        list.revoke_token(&jti1, "user1", expiry);
-        list.revoke_token(&jti2, "user1", expiry);
-        list.revoke_token(&jti3, "user1", expiry);
+        list.track_issued_token(&jti1, "user1", expiry);
+        list.track_issued_token(&jti2, "user1", expiry);
+        list.track_issued_token(&jti3, "user1", expiry);
+
+        // Nothing is revoked while the tokens are in normal use.
+        assert!(!list.is_revoked(&jti1));
+        assert!(!list.is_revoked(&jti2));
+        assert!(!list.is_revoked(&jti3));
 
         // User changes password — all tokens revoked
         let count = list.revoke_all_user_tokens("user1").unwrap();
         assert_eq!(count, 3);
 
         // All 3 tokens are now rejected
-        assert!(!list.is_revoked(&jti1));
-        assert!(!list.is_revoked(&jti2));
-        assert!(!list.is_revoked(&jti3));
+        assert!(list.is_revoked(&jti1));
+        assert!(list.is_revoked(&jti2));
+        assert!(list.is_revoked(&jti3));
     }
 }

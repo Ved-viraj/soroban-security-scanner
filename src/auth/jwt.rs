@@ -100,6 +100,11 @@ impl JwtService {
         let token = encode(&Header::default(), &claims, &self.encoding_key)
             .map_err(|e| JwtError::Encoding(e.to_string()))?;
 
+        // Track the issued token so it can be force-invalidated later via
+        // revoke_all_user_tokens (e.g. on password change / compromise).
+        self.revocation_list
+            .track_issued_token(&claims.jti, user_id, exp);
+
         Ok(token)
     }
 
@@ -126,6 +131,11 @@ impl JwtService {
 
         let token = encode(&Header::default(), &claims, &self.encoding_key)
             .map_err(|e| JwtError::Encoding(e.to_string()))?;
+
+        // Refresh tokens are long-lived, so tracking them is what makes a
+        // password-change revocation able to reach them too.
+        self.revocation_list
+            .track_issued_token(&claims.jti, user_id, exp);
 
         Ok(token)
     }
@@ -354,5 +364,37 @@ mod tests {
         let claims = jwt_service.validate_token(&new_access_token).unwrap();
         assert_eq!(claims.sub, "user123");
         assert_eq!(claims.email, "test@example.com");
+    }
+
+    #[test]
+    fn test_token_rejected_after_revoke_all_user_tokens() {
+        let jwt_service = JwtService::new(
+            TEST_SECRET,
+            TEST_ISSUER.to_string(),
+            TEST_AUDIENCE.to_string(),
+        );
+
+        // Issue a token and confirm it validates.
+        let token = jwt_service
+            .generate_token("user123", "test@example.com", "admin", vec![], 1)
+            .unwrap();
+        assert!(jwt_service.validate_token(&token).is_ok());
+
+        // Simulate a password change / account compromise.
+        let revoked = jwt_service.revoke_all_user_tokens("user123").unwrap();
+        assert_eq!(revoked, 1);
+
+        // The previously valid token must now be rejected as revoked, even
+        // though its signature and expiry are still fine.
+        assert!(matches!(
+            jwt_service.validate_token(&token),
+            Err(JwtError::Revoked)
+        ));
+
+        // A different user's token is unaffected.
+        let other = jwt_service
+            .generate_token("user999", "other@example.com", "user", vec![], 1)
+            .unwrap();
+        assert!(jwt_service.validate_token(&other).is_ok());
     }
 }
