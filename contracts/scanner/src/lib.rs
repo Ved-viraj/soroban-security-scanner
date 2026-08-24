@@ -3,13 +3,15 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::ToString;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN,
-    Env, Map, String, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, vec, Address, Bytes,
+    BytesN, Env, Map, String, Symbol, Vec,
 };
 
 // Contract state keys
 const ADMIN: Symbol = symbol_short!("ADMIN");
+const TOKEN: Symbol = symbol_short!("TOKEN");
 const BOUNTY_POOL: Symbol = symbol_short!("BOUNTY");
+const MIN_HIGH_BOUNTY_APPROVALS: u64 = 2;
 #[allow(dead_code)]
 const VULNERABILITIES: Symbol = symbol_short!("VULNS");
 #[allow(dead_code)]
@@ -101,6 +103,7 @@ pub enum ContractError {
     InvalidRole = 14,
     MultiSigRequired = 15,
     AlreadyApproved = 16,
+    AlreadyVerified = 17,
 }
 
 // Vulnerability structure
@@ -172,9 +175,45 @@ impl SecurityScannerContract {
         alloc::string::String::from_utf8(vec).expect("invalid utf-8")
     }
 
-    fn require_non_default_address(addr: &Address) -> Result<(), ContractError> {
-        let _ = addr;
+    fn require_non_default_address(env: &Env, addr: &Address) -> Result<(), ContractError> {
+        let null_address = String::from_str(
+            env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        );
+        if addr == &Address::from_string(&null_address) {
+            return Err(ContractError::InvalidInput);
+        }
         Ok(())
+    }
+
+    fn token_client(env: &Env) -> token::Client<'_> {
+        let token_addr: Address = env
+            .storage()
+            .instance()
+            .get(&TOKEN)
+            .expect("token address not configured");
+        token::Client::new(env, &token_addr)
+    }
+
+    fn receive_tokens(env: &Env, from: &Address, amount: i128) -> Result<(), ContractError> {
+        Self::require_positive_amount(amount)?;
+        let contract = env.current_contract_address();
+        Self::token_client(env).transfer(from, &contract, &amount);
+        Ok(())
+    }
+
+    fn transfer_tokens(env: &Env, to: &Address, amount: i128) -> Result<(), ContractError> {
+        Self::require_positive_amount(amount)?;
+        let contract = env.current_contract_address();
+        Self::token_client(env).transfer(&contract, to, &amount);
+        Ok(())
+    }
+
+    fn reputations(env: &Env) -> Map<Address, Reputation> {
+        env.storage()
+            .instance()
+            .get(&REPUTATION)
+            .unwrap_or(Map::new(env))
     }
 
     fn require_positive_amount(amount: i128) -> Result<(), ContractError> {
@@ -422,15 +461,13 @@ impl SecurityScannerContract {
         Ok(approval_count >= proposal.required_approvals)
     }
 
-    fn execute_payout_placeholder(
+    fn execute_payout(
         env: &Env,
         recipient: &Address,
         amount: i128,
         escrow_id: u64,
     ) -> Result<(), ContractError> {
-        if amount <= 0 {
-            return Err(ContractError::ExternalCallFailed);
-        }
+        Self::transfer_tokens(env, recipient, amount)?;
         #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("payout"),),
@@ -439,16 +476,22 @@ impl SecurityScannerContract {
         Ok(())
     }
 
-    /// Initialize the contract with admin address
-    pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
+    /// Initialize the contract with admin address and payment token
+    pub fn initialize(env: Env, admin: Address, token: Address) -> Result<(), ContractError> {
         if env.storage().instance().has(&ADMIN) {
             return Err(ContractError::Unauthorized);
         }
 
-        Self::require_non_default_address(&admin)?;
+        admin.require_auth();
+        Self::require_non_default_address(&env, &admin)?;
+        Self::require_non_default_address(&env, &token)?;
         env.storage().instance().set(&ADMIN, &admin);
+        env.storage().instance().set(&TOKEN, &token);
         env.storage().instance().set(&BOUNTY_POOL, &0i128);
         env.storage().instance().set(&EMERGENCY_POOL, &0i128);
+        env.storage()
+            .instance()
+            .set(&REPUTATION, &Map::<Address, Reputation>::new(&env));
         env.storage()
             .instance()
             .set(&REPORTS, &Map::<u64, VulnerabilityReport>::new(&env));
@@ -497,7 +540,7 @@ impl SecurityScannerContract {
     ) -> Result<u64, ContractError> {
         // Verify reporter is authorized
         reporter.require_auth();
-        Self::require_non_default_address(&reporter)?;
+        Self::require_non_default_address(&env, &reporter)?;
         Self::require_valid_text(&vulnerability_type)?;
         Self::require_valid_text(&severity)?;
         Self::require_valid_text(&description)?;
@@ -547,7 +590,7 @@ impl SecurityScannerContract {
         bounty_amount: i128,
     ) -> Result<(), ContractError> {
         admin.require_auth();
-        Self::require_non_default_address(&admin)?;
+        Self::require_non_default_address(&env, &admin)?;
         Self::require_positive_amount(bounty_amount)?;
 
         // Check role-based permissions
@@ -567,15 +610,28 @@ impl SecurityScannerContract {
         let mut report: VulnerabilityReport =
             reports.get(report_id).ok_or(ContractError::NotFound)?;
 
+        let verified_status = String::from_str(&env, "verified");
+        if report.status == verified_status {
+            return Err(ContractError::AlreadyVerified);
+        }
+
+        let mut pool: i128 = env.storage().instance().get(&BOUNTY_POOL).unwrap_or(0i128);
+        if pool < bounty_amount {
+            return Err(ContractError::InsufficientFunds);
+        }
+        pool = Self::checked_sub_i128(pool, bounty_amount)?;
+        env.storage().instance().set(&BOUNTY_POOL, &pool);
+
         // Update status and bounty
-        report.status = String::from_str(&env, "verified");
+        report.status = verified_status;
         report.bounty_amount = bounty_amount;
 
         // Store updated report
         reports.set(report_id, report.clone());
         env.storage().instance().set(&REPORTS, &reports);
 
-        // Update researcher reputation
+        // Pay bounty from contract custody and update researcher reputation
+        Self::transfer_tokens(&env, &report.reporter, bounty_amount)?;
         Self::update_reputation(env, report.reporter, 1, bounty_amount)?;
 
         Ok(())
@@ -599,12 +655,18 @@ impl SecurityScannerContract {
             String::from_str(&env, &bounty_amount.to_string()),
         ];
 
+        let bounty_approvals = if required_approvals < MIN_HIGH_BOUNTY_APPROVALS {
+            MIN_HIGH_BOUNTY_APPROVALS
+        } else {
+            required_approvals
+        };
+
         Self::create_multi_sig_proposal(
             &env,
             &proposer,
             String::from_str(&env, "verify_vulnerability"),
             parameters,
-            required_approvals,
+            bounty_approvals,
             execution_delay,
         )
     }
@@ -686,19 +748,18 @@ impl SecurityScannerContract {
 
     /// Get researcher reputation
     pub fn get_reputation(env: Env, researcher: Address) -> Result<Reputation, ContractError> {
-        #[allow(deprecated)]
-        let rep_key = Symbol::short(&format!("REP_{:?}", researcher));
-        env.storage()
-            .instance()
-            .get(&rep_key)
+        Self::reputations(&env)
+            .get(researcher)
             .ok_or(ContractError::NotFound)
     }
 
     /// Add funds to bounty pool
     pub fn fund_bounty_pool(env: Env, funder: Address, amount: i128) -> Result<(), ContractError> {
         funder.require_auth();
-        Self::require_non_default_address(&funder)?;
+        Self::require_non_default_address(&env, &funder)?;
         Self::require_positive_amount(amount)?;
+
+        Self::receive_tokens(&env, &funder, amount)?;
 
         let mut current_pool: i128 = env.storage().instance().get(&BOUNTY_POOL).unwrap_or(0i128);
         current_pool = Self::checked_add_i128(current_pool, amount)?;
@@ -719,19 +780,15 @@ impl SecurityScannerContract {
         successful_reports: u64,
         earnings: i128,
     ) -> Result<(), ContractError> {
-        #[allow(deprecated)]
-        let rep_key = Symbol::short(&format!("REP_{:?}", researcher));
+        let mut reputations = Self::reputations(&env);
 
         let mut reputation: Reputation =
-            env.storage()
-                .instance()
-                .get(&rep_key)
-                .unwrap_or(Reputation {
-                    researcher: researcher.clone(),
-                    score: 0,
-                    successful_reports: 0,
-                    total_earnings: 0,
-                });
+            reputations.get(researcher.clone()).unwrap_or(Reputation {
+                researcher: researcher.clone(),
+                score: 0,
+                successful_reports: 0,
+                total_earnings: 0,
+            });
 
         reputation.successful_reports =
             Self::checked_add_u64(reputation.successful_reports, successful_reports)?;
@@ -741,7 +798,8 @@ impl SecurityScannerContract {
             Self::checked_non_negative_i128_to_u64(reputation.total_earnings / 1_000_000)?;
         reputation.score = Self::checked_add_u64(score_from_reports, score_from_earnings)?;
 
-        env.storage().instance().set(&rep_key, &reputation);
+        reputations.set(researcher, reputation);
+        env.storage().instance().set(&REPUTATION, &reputations);
 
         Ok(())
     }
@@ -756,8 +814,8 @@ impl SecurityScannerContract {
         lock_duration: u64,
     ) -> Result<u64, ContractError> {
         depositor.require_auth();
-        Self::require_non_default_address(&depositor)?;
-        Self::require_non_default_address(&beneficiary)?;
+        Self::require_non_default_address(&env, &depositor)?;
+        Self::require_non_default_address(&env, &beneficiary)?;
         Self::require_positive_amount(amount)?;
         Self::require_valid_text(&purpose)?;
 
@@ -794,12 +852,75 @@ impl SecurityScannerContract {
         escrow_nonces.set(escrow_id, escrow_nonce);
         env.storage().instance().set(&ESCROW_NONCES, &escrow_nonces);
 
+        Self::receive_tokens(&env, &depositor, amount)?;
+
         // Add to escrow pool tracking
         let mut escrow_pool: i128 = env.storage().instance().get(&ESCROW).unwrap_or(0i128);
         escrow_pool = Self::checked_add_i128(escrow_pool, amount)?;
         env.storage().instance().set(&ESCROW, &escrow_pool);
 
         Ok(escrow_id)
+    }
+
+    fn verify_release_signature(
+        env: &Env,
+        escrow: &EscrowEntry,
+        signature: &Option<Bytes>,
+    ) -> Result<BytesN<64>, ContractError> {
+        let sig = signature.as_ref().ok_or(ContractError::InvalidInput)?;
+        if sig.len() != 64 {
+            return Err(ContractError::InvalidInput);
+        }
+
+        escrow.beneficiary.require_auth();
+
+        let mut sig_bytes = [0u8; 64];
+        sig.copy_into_slice(&mut sig_bytes);
+        Ok(BytesN::from_array(env, &sig_bytes))
+    }
+
+    fn release_escrow_internal(
+        env: &Env,
+        escrow_id: u64,
+        depositor: &Address,
+        release_signature: Option<BytesN<64>>,
+    ) -> Result<(), ContractError> {
+        let mut escrows: Map<u64, EscrowEntry> = env
+            .storage()
+            .instance()
+            .get(&ESCROWS)
+            .unwrap_or(Map::new(env));
+        let mut escrow: EscrowEntry = escrows.get(escrow_id).ok_or(ContractError::NotFound)?;
+
+        if escrow.depositor != *depositor {
+            return Err(ContractError::Unauthorized);
+        }
+
+        if escrow.status == String::from_str(env, "released") {
+            return Err(ContractError::InvalidEscrowStatus);
+        }
+
+        let current_time = env.ledger().timestamp();
+        if !escrow.conditions_met && current_time < escrow.lock_until {
+            return Err(ContractError::EscrowLocked);
+        }
+
+        Self::execute_payout(env, &escrow.beneficiary, escrow.amount, escrow_id)?;
+
+        escrow.status = String::from_str(env, "released");
+        escrow.release_signature = release_signature.map(|sig| {
+            let mut bytes = [0u8; 64];
+            sig.copy_into_slice(&mut bytes);
+            Bytes::from_slice(env, &bytes)
+        });
+        escrows.set(escrow_id, escrow.clone());
+        env.storage().instance().set(&ESCROWS, &escrows);
+
+        let mut escrow_pool: i128 = env.storage().instance().get(&ESCROW).unwrap_or(0i128);
+        escrow_pool = Self::checked_sub_i128(escrow_pool, escrow.amount)?;
+        env.storage().instance().set(&ESCROW, &escrow_pool);
+
+        Ok(())
     }
 
     /// Release escrow funds to beneficiary
@@ -811,47 +932,16 @@ impl SecurityScannerContract {
     ) -> Result<(), ContractError> {
         depositor.require_auth();
 
-        let mut escrows: Map<u64, EscrowEntry> = env
+        let escrows: Map<u64, EscrowEntry> = env
             .storage()
             .instance()
             .get(&ESCROWS)
             .unwrap_or(Map::new(&env));
-        let mut escrow: EscrowEntry = escrows.get(escrow_id).ok_or(ContractError::NotFound)?;
+        let escrow: EscrowEntry = escrows.get(escrow_id).ok_or(ContractError::NotFound)?;
 
-        // Verify depositor authorization
-        if escrow.depositor != depositor {
-            return Err(ContractError::Unauthorized);
-        }
+        let verified_signature = Self::verify_release_signature(&env, &escrow, &signature)?;
 
-        // Check if escrow can be released
-        if escrow.status == String::from_str(&env, "released") {
-            return Err(ContractError::InvalidEscrowStatus);
-        }
-
-        let current_time = env.ledger().timestamp();
-
-        // Allow release if conditions are met or lock period has expired
-        if !escrow.conditions_met && current_time < escrow.lock_until {
-            return Err(ContractError::EscrowLocked);
-        }
-
-        Self::execute_payout_placeholder(&env, &escrow.beneficiary, escrow.amount, escrow_id)?;
-
-        // Update escrow status
-        escrow.status = String::from_str(&env, "released");
-        escrow.release_signature = signature;
-        escrows.set(escrow_id, escrow.clone());
-        env.storage().instance().set(&ESCROWS, &escrows);
-
-        // Update escrow pool
-        let mut escrow_pool: i128 = env.storage().instance().get(&ESCROW).unwrap_or(0i128);
-        escrow_pool = Self::checked_sub_i128(escrow_pool, escrow.amount)?;
-        env.storage().instance().set(&ESCROW, &escrow_pool);
-
-        // In a real implementation, you would transfer the tokens here
-        // For now, we just update the state
-
-        Ok(())
+        Self::release_escrow_internal(&env, escrow_id, &depositor, Some(verified_signature))
     }
 
     /// Refund escrow funds to depositor
@@ -886,7 +976,7 @@ impl SecurityScannerContract {
             return Err(ContractError::EscrowLocked);
         }
 
-        Self::execute_payout_placeholder(&env, &escrow.depositor, escrow.amount, escrow_id)?;
+        Self::execute_payout(&env, &escrow.depositor, escrow.amount, escrow_id)?;
 
         // Update escrow status
         escrow.status = String::from_str(&env, "refunded");
@@ -898,9 +988,6 @@ impl SecurityScannerContract {
         escrow_pool = Self::checked_sub_i128(escrow_pool, escrow.amount)?;
         env.storage().instance().set(&ESCROW, &escrow_pool);
 
-        // In a real implementation, you would transfer tokens back to depositor
-        // For now, we just update the state
-
         Ok(())
     }
 
@@ -911,7 +998,7 @@ impl SecurityScannerContract {
         admin: Address,
     ) -> Result<(), ContractError> {
         admin.require_auth();
-        Self::require_non_default_address(&admin)?;
+        Self::require_non_default_address(&env, &admin)?;
 
         // Check role-based permissions
         Self::require_permission(&env, &admin, Permission::ManageEscrow)?;
@@ -940,7 +1027,7 @@ impl SecurityScannerContract {
         description: String,
         location: String,
     ) -> Result<u64, ContractError> {
-        Self::require_non_default_address(&reporter)?;
+        Self::require_non_default_address(&env, &reporter)?;
         Self::require_valid_text(&vulnerability_type)?;
         Self::require_valid_text(&severity)?;
         Self::require_valid_text(&description)?;
@@ -1002,7 +1089,7 @@ impl SecurityScannerContract {
         _verified: bool,
     ) -> Result<(), ContractError> {
         admin.require_auth();
-        Self::require_non_default_address(&admin)?;
+        Self::require_non_default_address(&env, &admin)?;
 
         // Check role-based permissions
         Self::require_permission(&env, &admin, Permission::VerifyEmergency)?;
@@ -1143,7 +1230,7 @@ impl SecurityScannerContract {
 
             // Immediately mark conditions as met and release
             Self::mark_escrow_conditions_met(env.clone(), escrow_id, admin.clone())?;
-            Self::release_escrow(env.clone(), escrow_id, admin, None)?;
+            Self::release_escrow_internal(&env, escrow_id, &admin, None)?;
 
             // Update reputation
             Self::update_reputation(
@@ -1202,11 +1289,13 @@ impl SecurityScannerContract {
         amount: i128,
     ) -> Result<(), ContractError> {
         funder.require_auth();
-        Self::require_non_default_address(&funder)?;
+        Self::require_non_default_address(&env, &funder)?;
         Self::require_positive_amount(amount)?;
 
         // Check role-based permissions
         Self::require_permission(&env, &funder, Permission::ManageTreasury)?;
+
+        Self::receive_tokens(&env, &funder, amount)?;
 
         let mut current_pool: i128 = env
             .storage()
@@ -1223,14 +1312,14 @@ impl SecurityScannerContract {
 
     /// Grant a role to an address (requires SuperAdmin role and multi-sig)
     pub fn grant_role(
-        _env: Env,
+        env: Env,
         super_admin: Address,
         user: Address,
         _role: Role,
     ) -> Result<(), ContractError> {
         super_admin.require_auth();
-        Self::require_non_default_address(&super_admin)?;
-        Self::require_non_default_address(&user)?;
+        Self::require_non_default_address(&env, &super_admin)?;
+        Self::require_non_default_address(&env, &user)?;
 
         // Role management always requires multi-signature
         Err(ContractError::MultiSigRequired)
@@ -1376,14 +1465,14 @@ impl SecurityScannerContract {
 
     /// Revoke a role from an address (requires SuperAdmin role and multi-sig)
     pub fn revoke_role(
-        _env: Env,
+        env: Env,
         super_admin: Address,
         user: Address,
         _role: Role,
     ) -> Result<(), ContractError> {
         super_admin.require_auth();
-        Self::require_non_default_address(&super_admin)?;
-        Self::require_non_default_address(&user)?;
+        Self::require_non_default_address(&env, &super_admin)?;
+        Self::require_non_default_address(&env, &user)?;
 
         // Role management always requires multi-signature
         Err(ContractError::MultiSigRequired)
@@ -1416,3 +1505,6 @@ impl SecurityScannerContract {
         Self::can_execute_proposal(&env, proposal_id)
     }
 }
+
+#[cfg(test)]
+mod test;
