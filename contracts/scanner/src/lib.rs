@@ -3,8 +3,8 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::ToString;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN,
-    Env, Map, String, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, vec, xdr::ToXdr, Address,
+    Bytes, BytesN, Env, Map, String, Symbol, Vec,
 };
 
 // Contract state keys
@@ -141,7 +141,13 @@ pub struct EscrowEntry {
     pub created_at: u64,
     pub lock_until: u64,
     pub conditions_met: bool,
-    pub release_signature: Option<Bytes>,
+    /// Optional ed25519 public key that must authorize a release. When set,
+    /// `release_escrow` requires a valid signature over the escrow's canonical
+    /// release message; when `None`, release falls back to depositor auth only.
+    pub release_signer: Option<BytesN<32>>,
+    /// The verified ed25519 signature that authorized the release. Only ever
+    /// populated with a signature that passed `ed25519_verify` (Issue #481).
+    pub release_signature: Option<BytesN<64>>,
 }
 
 // Emergency alert structure
@@ -231,6 +237,28 @@ impl SecurityScannerContract {
         );
         let bytes = Bytes::from_slice(env, payload.as_bytes());
         env.crypto().sha256(&bytes).into()
+    }
+
+    /// Load the per-escrow nonce created in `create_escrow`.
+    fn escrow_nonce(env: &Env, escrow_id: u64) -> Result<BytesN<32>, ContractError> {
+        let escrow_nonces: Map<u64, BytesN<32>> = env
+            .storage()
+            .instance()
+            .get(&ESCROW_NONCES)
+            .unwrap_or(Map::new(env));
+        escrow_nonces.get(escrow_id).ok_or(ContractError::NotFound)
+    }
+
+    /// Build the canonical message a release signer must sign to authorize a
+    /// release. Binding the escrow's unique nonce, id, beneficiary and amount
+    /// ties the signature to exactly one payout and prevents it from being
+    /// replayed against a different escrow or a mutated amount.
+    fn build_release_message(env: &Env, escrow: &EscrowEntry, nonce: &BytesN<32>) -> Bytes {
+        let mut message = Bytes::from_array(env, &nonce.to_array());
+        message.extend_from_array(&escrow.id.to_be_bytes());
+        message.append(&escrow.beneficiary.clone().to_xdr(env));
+        message.extend_from_array(&escrow.amount.to_be_bytes());
+        message
     }
 
     // Role-based access control helper functions
@@ -754,6 +782,7 @@ impl SecurityScannerContract {
         amount: i128,
         purpose: String,
         lock_duration: u64,
+        release_signer: Option<BytesN<32>>,
     ) -> Result<u64, ContractError> {
         depositor.require_auth();
         Self::require_non_default_address(&depositor)?;
@@ -776,6 +805,7 @@ impl SecurityScannerContract {
             created_at: current_time,
             lock_until,
             conditions_met: false,
+            release_signer,
             release_signature: None,
         };
 
@@ -807,7 +837,7 @@ impl SecurityScannerContract {
         env: Env,
         escrow_id: u64,
         depositor: Address,
-        signature: Option<Bytes>,
+        signature: Option<BytesN<64>>,
     ) -> Result<(), ContractError> {
         depositor.require_auth();
 
@@ -835,11 +865,28 @@ impl SecurityScannerContract {
             return Err(ContractError::EscrowLocked);
         }
 
+        // Enforce the signature-based release control. If the escrow was created
+        // with a `release_signer`, the caller must present an ed25519 signature
+        // over the escrow's canonical release message; anything else is rejected.
+        // Previously the `signature` argument was stored without ever being
+        // checked, so the control was purely decorative (Issue #481).
+        let verified_signature = match &escrow.release_signer {
+            Some(signer) => {
+                let signature = signature.ok_or(ContractError::Unauthorized)?;
+                let nonce = Self::escrow_nonce(&env, escrow_id)?;
+                let message = Self::build_release_message(&env, &escrow, &nonce);
+                // Panics (aborting the transaction) if the signature is invalid.
+                env.crypto().ed25519_verify(signer, &message, &signature);
+                Some(signature)
+            }
+            None => None,
+        };
+
         Self::execute_payout_placeholder(&env, &escrow.beneficiary, escrow.amount, escrow_id)?;
 
         // Update escrow status
         escrow.status = String::from_str(&env, "released");
-        escrow.release_signature = signature;
+        escrow.release_signature = verified_signature;
         escrows.set(escrow_id, escrow.clone());
         env.storage().instance().set(&ESCROWS, &escrows);
 
@@ -1138,7 +1185,8 @@ impl SecurityScannerContract {
                 alert.reporter.clone(),
                 alert.emergency_reward,
                 String::from_str(&env, "emergency"),
-                0, // No lock period for emergency rewards
+                0,    // No lock period for emergency rewards
+                None, // Emergency releases are authorized by admin auth, not a signer
             )?;
 
             // Immediately mark conditions as met and release
@@ -1170,6 +1218,15 @@ impl SecurityScannerContract {
             .get(&ESCROWS)
             .unwrap_or(Map::new(&env));
         escrows.get(escrow_id).ok_or(ContractError::NotFound)
+    }
+
+    /// Canonical message that an escrow's registered `release_signer` must sign
+    /// (raw, unhashed) to authorize a release via `release_escrow`. Returns
+    /// `NotFound` if the escrow does not exist.
+    pub fn escrow_release_message(env: Env, escrow_id: u64) -> Result<Bytes, ContractError> {
+        let escrow = Self::get_escrow(env.clone(), escrow_id)?;
+        let nonce = Self::escrow_nonce(&env, escrow_id)?;
+        Ok(Self::build_release_message(&env, &escrow, &nonce))
     }
 
     /// Get emergency alert details
