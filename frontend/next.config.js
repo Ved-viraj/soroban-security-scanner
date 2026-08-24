@@ -1,3 +1,13 @@
+// Block shipping mock authentication in production builds.
+// The mock auth path (lib/auth/authService.ts) must never be deployable
+// in a production build, so fail the build if it is explicitly enabled.
+if (process.env.NODE_ENV === 'production' && process.env.NEXT_PUBLIC_ENABLE_MOCK_AUTH === 'true') {
+  throw new Error(
+    'NEXT_PUBLIC_ENABLE_MOCK_AUTH=true is not allowed in production builds. ' +
+      'Remove the flag or configure a real authentication backend.'
+  );
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Enable React strict mode for better development warnings

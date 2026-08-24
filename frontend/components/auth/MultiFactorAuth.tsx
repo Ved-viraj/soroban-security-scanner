@@ -26,6 +26,8 @@ interface MultiFactorAuthProps {
   isLoading?: boolean;
   userEmail?: string;
   userPhone?: string;
+  /** The one-time code "sent" by the demo mock, displayed in demo mode only. */
+  demoCode?: string | null;
 }
 
 export default function MultiFactorAuth({
@@ -36,6 +38,7 @@ export default function MultiFactorAuth({
   isLoading = false,
   userEmail = '',
   userPhone = '',
+  demoCode = null,
 }: MultiFactorAuthProps) {
   const [method, setMethod] = useState<MfaMethod>(selectedMethod);
   const [code, setCode] = useState('');
@@ -238,6 +241,16 @@ export default function MultiFactorAuth({
             <span className="ml-2">{getMethodDescription(method)}</span>
           </p>
         </div>
+
+        {/* Demo-mode one-time code hint (mock auth only, never in production) */}
+        {demoCode && (
+          <div className="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-sm text-amber-800">
+              Demo mode: your one-time code is{' '}
+              <span className="font-mono font-semibold tracking-widest">{demoCode}</span>
+            </p>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Code Input */}

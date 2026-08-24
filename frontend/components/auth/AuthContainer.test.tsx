@@ -9,8 +9,8 @@ async function loginAndCompleteMfa(rememberMe: boolean) {
   const user = userEvent.setup();
   render(<AuthContainer />);
 
-  await user.type(screen.getByLabelText(/email address/i), 'demo@example.com');
-  await user.type(screen.getByLabelText(/^password$/i), 'password123');
+  await user.type(screen.getByLabelText(/email address/i), 'user@example.com');
+  await user.type(screen.getByLabelText(/^password$/i), 'correct horse battery staple');
 
   if (rememberMe) {
     await user.click(screen.getByLabelText(/remember me/i));
@@ -20,7 +20,14 @@ async function loginAndCompleteMfa(rememberMe: boolean) {
 
   // The mock login always requires MFA before a session is established.
   const codeInput = await screen.findByLabelText(/verification code/i, {}, { timeout: 3000 });
-  await user.type(codeInput, '123456');
+
+  // Demo mode surfaces the one-time code the mock "sent"; use that code
+  // to complete MFA (there is no fixed/known code anymore).
+  const demoHint = await screen.findByText(/demo mode/i, {}, { timeout: 3000 });
+  const sentCode = demoHint.textContent?.match(/\b\d{6}\b/)?.[0];
+  expect(sentCode).toBeDefined();
+
+  await user.type(codeInput, sentCode as string);
   await user.click(screen.getByRole('button', { name: /verify code/i }));
 
   await waitFor(() => expect(screen.getByText(/authentication successful/i)).toBeInTheDocument(), {
@@ -38,8 +45,8 @@ describe('AuthContainer - rememberMe session persistence', () => {
     const user = userEvent.setup();
     render(<AuthContainer />);
 
-    await user.type(screen.getByLabelText(/email address/i), 'demo@example.com');
-    await user.type(screen.getByLabelText(/^password$/i), 'password123');
+    await user.type(screen.getByLabelText(/email address/i), 'user@example.com');
+    await user.type(screen.getByLabelText(/^password$/i), 'correct horse battery staple');
     await user.click(screen.getByRole('button', { name: /sign in/i }));
 
     await screen.findByLabelText(/verification code/i, {}, { timeout: 3000 });
