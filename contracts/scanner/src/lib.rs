@@ -499,6 +499,14 @@ impl SecurityScannerContract {
 
     /// Initialize the contract with admin address
     pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
+        // Require the designated admin to authorize initialization. Without this,
+        // `initialize` is permissionless: any account can front-run the legitimate
+        // deployer and register an address it controls as ADMIN / SuperAdmin, since
+        // the only other guard is the "already initialized" check below. Requiring
+        // the admin's own signature ensures the SuperAdmin slot cannot be seized on
+        // behalf of an address the caller does not control.
+        admin.require_auth();
+
         if env.storage().instance().has(&ADMIN) {
             return Err(ContractError::Unauthorized);
         }
