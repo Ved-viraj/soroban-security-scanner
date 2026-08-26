@@ -3,8 +3,8 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::ToString;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN,
-    Env, Map, String, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, vec, xdr::ToXdr, Address,
+    Bytes, BytesN, Env, Map, String, Symbol, Vec,
 };
 
 // Contract state keys
@@ -141,7 +141,13 @@ pub struct EscrowEntry {
     pub created_at: u64,
     pub lock_until: u64,
     pub conditions_met: bool,
-    pub release_signature: Option<Bytes>,
+    /// Optional ed25519 public key that must authorize a release. When set,
+    /// `release_escrow` requires a valid signature over the escrow's canonical
+    /// release message; when `None`, release falls back to depositor auth only.
+    pub release_signer: Option<BytesN<32>>,
+    /// The verified ed25519 signature that authorized the release. Only ever
+    /// populated with a signature that passed `ed25519_verify` (Issue #481).
+    pub release_signature: Option<BytesN<64>>,
 }
 
 // Emergency alert structure
@@ -166,10 +172,40 @@ pub struct SecurityScannerContract;
 
 #[contractimpl]
 impl SecurityScannerContract {
-    fn sdk_string_to_rust(s: soroban_sdk::String) -> alloc::string::String {
+    /// Convert an SDK string to a Rust `String`, returning [`ContractError::InvalidInput`]
+    /// on invalid UTF-8 instead of panicking. A panic here traps the whole
+    /// transaction, so untrusted proposal parameters must never be able to trigger one.
+    fn sdk_string_to_rust(s: soroban_sdk::String) -> Result<alloc::string::String, ContractError> {
         let bytes = s.to_bytes();
         let vec = bytes.to_alloc_vec();
-        alloc::string::String::from_utf8(vec).expect("invalid utf-8")
+        alloc::string::String::from_utf8(vec).map_err(|_| ContractError::InvalidInput)
+    }
+
+    /// Fetch parameter `idx` from a proposal parameter list, erroring instead of
+    /// panicking when the index is out of range.
+    fn proposal_param(parameters: &Vec<String>, idx: u32) -> Result<String, ContractError> {
+        parameters.get(idx).ok_or(ContractError::InvalidInput)
+    }
+
+    /// Parse proposal parameter `idx` as `u64` without panicking.
+    fn parse_param_u64(parameters: &Vec<String>, idx: u32) -> Result<u64, ContractError> {
+        Self::sdk_string_to_rust(Self::proposal_param(parameters, idx)?)?
+            .parse()
+            .map_err(|_| ContractError::InvalidInput)
+    }
+
+    /// Parse proposal parameter `idx` as `i128` without panicking.
+    fn parse_param_i128(parameters: &Vec<String>, idx: u32) -> Result<i128, ContractError> {
+        Self::sdk_string_to_rust(Self::proposal_param(parameters, idx)?)?
+            .parse()
+            .map_err(|_| ContractError::InvalidInput)
+    }
+
+    /// Parse proposal parameter `idx` as `bool` without panicking.
+    fn parse_param_bool(parameters: &Vec<String>, idx: u32) -> Result<bool, ContractError> {
+        Self::sdk_string_to_rust(Self::proposal_param(parameters, idx)?)?
+            .parse()
+            .map_err(|_| ContractError::InvalidInput)
     }
 
     fn require_non_default_address(addr: &Address) -> Result<(), ContractError> {
@@ -231,6 +267,28 @@ impl SecurityScannerContract {
         );
         let bytes = Bytes::from_slice(env, payload.as_bytes());
         env.crypto().sha256(&bytes).into()
+    }
+
+    /// Load the per-escrow nonce created in `create_escrow`.
+    fn escrow_nonce(env: &Env, escrow_id: u64) -> Result<BytesN<32>, ContractError> {
+        let escrow_nonces: Map<u64, BytesN<32>> = env
+            .storage()
+            .instance()
+            .get(&ESCROW_NONCES)
+            .unwrap_or(Map::new(env));
+        escrow_nonces.get(escrow_id).ok_or(ContractError::NotFound)
+    }
+
+    /// Build the canonical message a release signer must sign to authorize a
+    /// release. Binding the escrow's unique nonce, id, beneficiary and amount
+    /// ties the signature to exactly one payout and prevents it from being
+    /// replayed against a different escrow or a mutated amount.
+    fn build_release_message(env: &Env, escrow: &EscrowEntry, nonce: &BytesN<32>) -> Bytes {
+        let mut message = Bytes::from_array(env, &nonce.to_array());
+        message.extend_from_array(&escrow.id.to_be_bytes());
+        message.append(&escrow.beneficiary.clone().to_xdr(env));
+        message.extend_from_array(&escrow.amount.to_be_bytes());
+        message
     }
 
     // Role-based access control helper functions
@@ -441,6 +499,14 @@ impl SecurityScannerContract {
 
     /// Initialize the contract with admin address
     pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
+        // Require the designated admin to authorize initialization. Without this,
+        // `initialize` is permissionless: any account can front-run the legitimate
+        // deployer and register an address it controls as ADMIN / SuperAdmin, since
+        // the only other guard is the "already initialized" check below. Requiring
+        // the admin's own signature ensures the SuperAdmin slot cannot be seized on
+        // behalf of an address the caller does not control.
+        admin.require_auth();
+
         if env.storage().instance().has(&ADMIN) {
             return Err(ContractError::Unauthorized);
         }
@@ -643,12 +709,8 @@ impl SecurityScannerContract {
             .get(proposal_id)
             .ok_or(ContractError::ProposalNotFound)?;
 
-        let report_id: u64 = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap())
-            .parse()
-            .unwrap();
-        let bounty_amount: i128 = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap())
-            .parse()
-            .unwrap();
+        let report_id: u64 = Self::parse_param_u64(&proposal.parameters, 0)?;
+        let bounty_amount: i128 = Self::parse_param_i128(&proposal.parameters, 1)?;
 
         // Execute the verification
         Self::verify_vulnerability(env.clone(), executor, report_id, bounty_amount)?;
@@ -754,6 +816,7 @@ impl SecurityScannerContract {
         amount: i128,
         purpose: String,
         lock_duration: u64,
+        release_signer: Option<BytesN<32>>,
     ) -> Result<u64, ContractError> {
         depositor.require_auth();
         Self::require_non_default_address(&depositor)?;
@@ -776,6 +839,7 @@ impl SecurityScannerContract {
             created_at: current_time,
             lock_until,
             conditions_met: false,
+            release_signer,
             release_signature: None,
         };
 
@@ -807,7 +871,7 @@ impl SecurityScannerContract {
         env: Env,
         escrow_id: u64,
         depositor: Address,
-        signature: Option<Bytes>,
+        signature: Option<BytesN<64>>,
     ) -> Result<(), ContractError> {
         depositor.require_auth();
 
@@ -835,11 +899,28 @@ impl SecurityScannerContract {
             return Err(ContractError::EscrowLocked);
         }
 
+        // Enforce the signature-based release control. If the escrow was created
+        // with a `release_signer`, the caller must present an ed25519 signature
+        // over the escrow's canonical release message; anything else is rejected.
+        // Previously the `signature` argument was stored without ever being
+        // checked, so the control was purely decorative (Issue #481).
+        let verified_signature = match &escrow.release_signer {
+            Some(signer) => {
+                let signature = signature.ok_or(ContractError::Unauthorized)?;
+                let nonce = Self::escrow_nonce(&env, escrow_id)?;
+                let message = Self::build_release_message(&env, &escrow, &nonce);
+                // Panics (aborting the transaction) if the signature is invalid.
+                env.crypto().ed25519_verify(signer, &message, &signature);
+                Some(signature)
+            }
+            None => None,
+        };
+
         Self::execute_payout_placeholder(&env, &escrow.beneficiary, escrow.amount, escrow_id)?;
 
         // Update escrow status
         escrow.status = String::from_str(&env, "released");
-        escrow.release_signature = signature;
+        escrow.release_signature = verified_signature;
         escrows.set(escrow_id, escrow.clone());
         env.storage().instance().set(&ESCROWS, &escrows);
 
@@ -1085,12 +1166,8 @@ impl SecurityScannerContract {
             .get(proposal_id)
             .ok_or(ContractError::ProposalNotFound)?;
 
-        let alert_id: u64 = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap())
-            .parse()
-            .unwrap();
-        let verified: bool = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap())
-            .parse()
-            .unwrap();
+        let alert_id: u64 = Self::parse_param_u64(&proposal.parameters, 0)?;
+        let verified: bool = Self::parse_param_bool(&proposal.parameters, 1)?;
 
         // Execute the emergency verification
         Self::execute_emergency_verification_internal(env.clone(), executor, alert_id, verified)?;
@@ -1138,7 +1215,8 @@ impl SecurityScannerContract {
                 alert.reporter.clone(),
                 alert.emergency_reward,
                 String::from_str(&env, "emergency"),
-                0, // No lock period for emergency rewards
+                0,    // No lock period for emergency rewards
+                None, // Emergency releases are authorized by admin auth, not a signer
             )?;
 
             // Immediately mark conditions as met and release
@@ -1170,6 +1248,15 @@ impl SecurityScannerContract {
             .get(&ESCROWS)
             .unwrap_or(Map::new(&env));
         escrows.get(escrow_id).ok_or(ContractError::NotFound)
+    }
+
+    /// Canonical message that an escrow's registered `release_signer` must sign
+    /// (raw, unhashed) to authorize a release via `release_escrow`. Returns
+    /// `NotFound` if the escrow does not exist.
+    pub fn escrow_release_message(env: Env, escrow_id: u64) -> Result<Bytes, ContractError> {
+        let escrow = Self::get_escrow(env.clone(), escrow_id)?;
+        let nonce = Self::escrow_nonce(&env, escrow_id)?;
+        Ok(Self::build_release_message(&env, &escrow, &nonce))
     }
 
     /// Get emergency alert details
@@ -1255,11 +1342,7 @@ impl SecurityScannerContract {
             Role::TreasuryManager => "TreasuryManager",
         };
 
-        let parameters = vec![
-            &env,
-            String::from_str(&env, &format!("{:?}", user)),
-            String::from_str(&env, role_str),
-        ];
+        let parameters = vec![&env, user.to_string(), String::from_str(&env, role_str)];
 
         // Role management has higher security requirements
         let role_delay = if execution_delay < 86400 {
@@ -1317,11 +1400,13 @@ impl SecurityScannerContract {
             .get(proposal_id)
             .ok_or(ContractError::ProposalNotFound)?;
 
-        let user_addr_s = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap());
-        let role_s = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap());
-
-        // Parse address and role (simplified for this example)
-        let user_address = Address::from_string(&String::from_str(&env, &user_addr_s));
+        // The user address is stored in canonical strkey form (see
+        // `propose_role_grant`), so reconstruct it directly from the stored SDK
+        // string. The previous code stored `format!("{:?}", user)` and rebuilt the
+        // address from that `Debug` output, which is not a valid strkey — so the
+        // granted address could differ from the one that was proposed and approved.
+        let user_address = Address::from_string(&Self::proposal_param(&proposal.parameters, 0)?);
+        let role_s = Self::sdk_string_to_rust(Self::proposal_param(&proposal.parameters, 1)?)?;
         let role = match role_s.as_str() {
             "SuperAdmin" => Role::SuperAdmin,
             "Verifier" => Role::Verifier,

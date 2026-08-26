@@ -40,6 +40,9 @@ target/
 *.rcgu.o
 *.d
 
+# Soroban test execution snapshots
+test_snapshots/
+
 # Environment files
 .env
 .env.local

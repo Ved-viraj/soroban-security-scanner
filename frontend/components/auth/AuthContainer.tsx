@@ -7,6 +7,15 @@ import PasswordResetForm from './PasswordResetForm';
 import MultiFactorAuth from './MultiFactorAuth';
 import { AlertCircle, CheckCircle } from 'lucide-react';
 import { persistSession } from '../../lib/auth/session';
+import {
+  login,
+  signUp,
+  resetPassword,
+  sendMfaCode,
+  resendMfaCode,
+  verifyMfa,
+  getPendingMfaCode,
+} from '../../lib/auth/authService';
 
 type AuthView = 'login' | 'signup' | 'reset-password' | 'mfa';
 
@@ -26,6 +35,8 @@ export default function AuthContainer({
   const [userEmail, setUserEmail] = useState('');
   const [userPhone, setUserPhone] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
+  // The one-time code the mock MFA flow "sent", shown only in demo mode.
+  const [demoMfaCode, setDemoMfaCode] = useState<string | null>(null);
 
   const clearMessages = () => {
     setError(null);
@@ -42,70 +53,6 @@ export default function AuthContainer({
     setError(null);
   };
 
-  // Mock authentication functions - replace with actual API calls
-  const mockLogin = async (credentials: {
-    email: string;
-    password: string;
-    rememberMe: boolean;
-  }) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // Mock validation
-    if (credentials.email === 'demo@example.com' && credentials.password === 'password123') {
-      setUserEmail(credentials.email);
-      return { user: { email: credentials.email, name: 'Demo User' }, requiresMfa: true };
-    }
-    throw new Error('Invalid email or password');
-  };
-
-  const mockSignUp = async (userData: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    password: string;
-  }) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Mock validation
-    if (userData.email === 'existing@example.com') {
-      throw new Error('An account with this email already exists');
-    }
-
-    setUserEmail(userData.email);
-    return { user: { email: userData.email, name: `${userData.firstName} ${userData.lastName}` } };
-  };
-
-  const mockResetPassword = async (email: string) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Mock validation
-    if (email === 'notfound@example.com') {
-      throw new Error('No account found with this email address');
-    }
-
-    return { success: true };
-  };
-
-  const mockVerifyMfa = async (code: string, method: string) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Mock validation
-    if (code === '123456') {
-      return { verified: true };
-    }
-    throw new Error('Invalid verification code');
-  };
-
-  const mockResendMfaCode = async (method: string) => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    return { success: true };
-  };
-
   const handleLogin = async (credentials: {
     email: string;
     password: string;
@@ -116,9 +63,14 @@ export default function AuthContainer({
     setRememberMe(credentials.rememberMe);
 
     try {
-      const result = await mockLogin(credentials);
+      const result = await login(credentials);
 
       if (result.requiresMfa) {
+        setUserEmail(result.user.email);
+        // Simulate the backend sending a one-time code, then surface it
+        // so the demo flow can be completed.
+        await sendMfaCode('totp');
+        setDemoMfaCode(getPendingMfaCode());
         setCurrentView('mfa');
         handleSuccess('Login successful! Please complete two-factor authentication.');
       } else {
@@ -143,7 +95,7 @@ export default function AuthContainer({
     setIsLoading(true);
 
     try {
-      const result = await mockSignUp(userData);
+      await signUp(userData);
       handleSuccess(
         'Account created successfully! Please check your email to verify your account.'
       );
@@ -161,7 +113,7 @@ export default function AuthContainer({
     setIsLoading(true);
 
     try {
-      await mockResetPassword(email);
+      await resetPassword(email);
       handleSuccess('Password reset link sent successfully!');
     } catch (err) {
       handleError(err instanceof Error ? err.message : 'Password reset failed');
@@ -175,9 +127,10 @@ export default function AuthContainer({
     setIsLoading(true);
 
     try {
-      const result = await mockVerifyMfa(code, method);
+      await verifyMfa(code, method);
       const user = { email: userEmail, verified: true };
       persistSession(user, rememberMe);
+      setDemoMfaCode(null);
       handleSuccess('Authentication successful!');
       onAuthSuccess?.(user);
     } catch (err) {
@@ -192,7 +145,8 @@ export default function AuthContainer({
     setIsLoading(true);
 
     try {
-      await mockResendMfaCode(method);
+      await resendMfaCode(method);
+      setDemoMfaCode(getPendingMfaCode());
       handleSuccess(`New code sent via ${method}`);
     } catch (err) {
       handleError(err instanceof Error ? err.message : 'Failed to resend code');
@@ -239,6 +193,7 @@ export default function AuthContainer({
             onResendCode={handleResendCode}
             userEmail={userEmail}
             userPhone={userPhone}
+            demoCode={demoMfaCode}
             isLoading={isLoading}
           />
         );
