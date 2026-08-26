@@ -3,8 +3,8 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::ToString;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, vec, Address, Bytes,
-    BytesN, Env, Map, String, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, vec, xdr::ToXdr,
+    Address, Bytes, BytesN, Env, Map, String, Symbol, Vec,
 };
 
 // Contract state keys
@@ -895,18 +895,18 @@ impl SecurityScannerContract {
     fn verify_release_signature(
         env: &Env,
         escrow: &EscrowEntry,
-        signature: &Option<Bytes>,
-    ) -> Result<BytesN<64>, ContractError> {
-        let sig = signature.as_ref().ok_or(ContractError::InvalidInput)?;
-        if sig.len() != 64 {
-            return Err(ContractError::InvalidInput);
+        signature: Option<BytesN<64>>,
+    ) -> Result<Option<BytesN<64>>, ContractError> {
+        match &escrow.release_signer {
+            Some(signer) => {
+                let signature = signature.ok_or(ContractError::Unauthorized)?;
+                let nonce = Self::escrow_nonce(env, escrow.id)?;
+                let message = Self::build_release_message(env, escrow, &nonce);
+                env.crypto().ed25519_verify(signer, &message, &signature);
+                Ok(Some(signature))
+            }
+            None => Ok(None),
         }
-
-        escrow.beneficiary.require_auth();
-
-        let mut sig_bytes = [0u8; 64];
-        sig.copy_into_slice(&mut sig_bytes);
-        Ok(BytesN::from_array(env, &sig_bytes))
     }
 
     fn release_escrow_internal(
@@ -938,11 +938,7 @@ impl SecurityScannerContract {
         Self::execute_payout(env, &escrow.beneficiary, escrow.amount, escrow_id)?;
 
         escrow.status = String::from_str(env, "released");
-        escrow.release_signature = release_signature.map(|sig| {
-            let mut bytes = [0u8; 64];
-            sig.copy_into_slice(&mut bytes);
-            Bytes::from_slice(env, &bytes)
-        });
+        escrow.release_signature = release_signature;
         escrows.set(escrow_id, escrow.clone());
         env.storage().instance().set(&ESCROWS, &escrows);
 
@@ -958,7 +954,7 @@ impl SecurityScannerContract {
         env: Env,
         escrow_id: u64,
         depositor: Address,
-        signature: Option<Bytes>,
+        signature: Option<BytesN<64>>,
     ) -> Result<(), ContractError> {
         depositor.require_auth();
 
@@ -969,9 +965,9 @@ impl SecurityScannerContract {
             .unwrap_or(Map::new(&env));
         let escrow: EscrowEntry = escrows.get(escrow_id).ok_or(ContractError::NotFound)?;
 
-        let verified_signature = Self::verify_release_signature(&env, &escrow, &signature)?;
+        let verified_signature = Self::verify_release_signature(&env, &escrow, signature)?;
 
-        Self::release_escrow_internal(&env, escrow_id, &depositor, Some(verified_signature))
+        Self::release_escrow_internal(&env, escrow_id, &depositor, verified_signature)
     }
 
     /// Refund escrow funds to depositor

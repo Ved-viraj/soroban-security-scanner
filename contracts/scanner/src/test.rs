@@ -3,7 +3,7 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{token, Address, Bytes, BytesN, Env, String};
+use soroban_sdk::{token, Address, BytesN, Env, String};
 
 struct TestContext<'a> {
     env: Env,
@@ -175,7 +175,7 @@ fn reputation_uses_address_keyed_storage() {
 }
 
 #[test]
-fn release_escrow_requires_beneficiary_signature_and_auth() {
+fn release_escrow_succeeds_without_signer_when_depositor_auth() {
     let ctx = setup();
     let depositor = ctx.admin.clone();
     let beneficiary = Address::generate(&ctx.env);
@@ -188,20 +188,13 @@ fn release_escrow_requires_beneficiary_signature_and_auth() {
         &100_000,
         &String::from_str(&ctx.env, "bounty"),
         &0,
+        &None,
     );
 
     ctx.client
         .mark_escrow_conditions_met(&escrow_id, &ctx.admin);
 
-    let missing_sig = ctx.client.try_release_escrow(&escrow_id, &depositor, &None);
-    assert!(missing_sig.is_err());
-
-    let mut sig_bytes = [0u8; 64];
-    sig_bytes[0] = 1;
-    let signature = Bytes::from_slice(&ctx.env, &sig_bytes);
-
-    ctx.client
-        .release_escrow(&escrow_id, &depositor, &Some(signature));
+    ctx.client.release_escrow(&escrow_id, &depositor, &None);
 
     let escrow = ctx.client.get_escrow(&escrow_id);
     assert_eq!(escrow.status, String::from_str(&ctx.env, "released"));
