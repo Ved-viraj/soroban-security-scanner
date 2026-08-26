@@ -175,10 +175,40 @@ pub struct SecurityScannerContract;
 
 #[contractimpl]
 impl SecurityScannerContract {
-    fn sdk_string_to_rust(s: soroban_sdk::String) -> alloc::string::String {
+    /// Convert an SDK string to a Rust `String`, returning [`ContractError::InvalidInput`]
+    /// on invalid UTF-8 instead of panicking. A panic here traps the whole
+    /// transaction, so untrusted proposal parameters must never be able to trigger one.
+    fn sdk_string_to_rust(s: soroban_sdk::String) -> Result<alloc::string::String, ContractError> {
         let bytes = s.to_bytes();
         let vec = bytes.to_alloc_vec();
-        alloc::string::String::from_utf8(vec).expect("invalid utf-8")
+        alloc::string::String::from_utf8(vec).map_err(|_| ContractError::InvalidInput)
+    }
+
+    /// Fetch parameter `idx` from a proposal parameter list, erroring instead of
+    /// panicking when the index is out of range.
+    fn proposal_param(parameters: &Vec<String>, idx: u32) -> Result<String, ContractError> {
+        parameters.get(idx).ok_or(ContractError::InvalidInput)
+    }
+
+    /// Parse proposal parameter `idx` as `u64` without panicking.
+    fn parse_param_u64(parameters: &Vec<String>, idx: u32) -> Result<u64, ContractError> {
+        Self::sdk_string_to_rust(Self::proposal_param(parameters, idx)?)?
+            .parse()
+            .map_err(|_| ContractError::InvalidInput)
+    }
+
+    /// Parse proposal parameter `idx` as `i128` without panicking.
+    fn parse_param_i128(parameters: &Vec<String>, idx: u32) -> Result<i128, ContractError> {
+        Self::sdk_string_to_rust(Self::proposal_param(parameters, idx)?)?
+            .parse()
+            .map_err(|_| ContractError::InvalidInput)
+    }
+
+    /// Parse proposal parameter `idx` as `bool` without panicking.
+    fn parse_param_bool(parameters: &Vec<String>, idx: u32) -> Result<bool, ContractError> {
+        Self::sdk_string_to_rust(Self::proposal_param(parameters, idx)?)?
+            .parse()
+            .map_err(|_| ContractError::InvalidInput)
     }
 
     fn require_non_default_address(env: &Env, addr: &Address) -> Result<(), ContractError> {
@@ -733,12 +763,8 @@ impl SecurityScannerContract {
             .get(proposal_id)
             .ok_or(ContractError::ProposalNotFound)?;
 
-        let report_id: u64 = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap())
-            .parse()
-            .unwrap();
-        let bounty_amount: i128 = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap())
-            .parse()
-            .unwrap();
+        let report_id: u64 = Self::parse_param_u64(&proposal.parameters, 0)?;
+        let bounty_amount: i128 = Self::parse_param_i128(&proposal.parameters, 1)?;
 
         // Execute the verification
         Self::verify_vulnerability(env.clone(), executor, report_id, bounty_amount)?;
@@ -1198,12 +1224,8 @@ impl SecurityScannerContract {
             .get(proposal_id)
             .ok_or(ContractError::ProposalNotFound)?;
 
-        let alert_id: u64 = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap())
-            .parse()
-            .unwrap();
-        let verified: bool = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap())
-            .parse()
-            .unwrap();
+        let alert_id: u64 = Self::parse_param_u64(&proposal.parameters, 0)?;
+        let verified: bool = Self::parse_param_bool(&proposal.parameters, 1)?;
 
         // Execute the emergency verification
         Self::execute_emergency_verification_internal(env.clone(), executor, alert_id, verified)?;
@@ -1380,11 +1402,7 @@ impl SecurityScannerContract {
             Role::TreasuryManager => "TreasuryManager",
         };
 
-        let parameters = vec![
-            &env,
-            String::from_str(&env, &format!("{:?}", user)),
-            String::from_str(&env, role_str),
-        ];
+        let parameters = vec![&env, user.to_string(), String::from_str(&env, role_str)];
 
         // Role management has higher security requirements
         let role_delay = if execution_delay < 86400 {
@@ -1442,11 +1460,13 @@ impl SecurityScannerContract {
             .get(proposal_id)
             .ok_or(ContractError::ProposalNotFound)?;
 
-        let user_addr_s = Self::sdk_string_to_rust(proposal.parameters.get(0).unwrap());
-        let role_s = Self::sdk_string_to_rust(proposal.parameters.get(1).unwrap());
-
-        // Parse address and role (simplified for this example)
-        let user_address = Address::from_string(&String::from_str(&env, &user_addr_s));
+        // The user address is stored in canonical strkey form (see
+        // `propose_role_grant`), so reconstruct it directly from the stored SDK
+        // string. The previous code stored `format!("{:?}", user)` and rebuilt the
+        // address from that `Debug` output, which is not a valid strkey — so the
+        // granted address could differ from the one that was proposed and approved.
+        let user_address = Address::from_string(&Self::proposal_param(&proposal.parameters, 0)?);
+        let role_s = Self::sdk_string_to_rust(Self::proposal_param(&proposal.parameters, 1)?)?;
         let role = match role_s.as_str() {
             "SuperAdmin" => Role::SuperAdmin,
             "Verifier" => Role::Verifier,
