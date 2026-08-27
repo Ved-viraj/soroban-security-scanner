@@ -177,9 +177,7 @@ describe('Security Headers Middleware', () => {
         response.headers.get('Content-Security-Policy-Report-Only');
       const requestCsp =
         response.headers.get('x-middleware-request-content-security-policy') ||
-        response.headers.get(
-          'x-middleware-request-content-security-policy-report-only'
-        );
+        response.headers.get('x-middleware-request-content-security-policy-report-only');
 
       expect(requestCsp).toBe(responseCsp);
       expect(requestCsp).toContain("'nonce-");

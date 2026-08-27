@@ -60,9 +60,7 @@ describe('RootLayout CSP nonce consumption', () => {
   });
 
   it('should render inline script without nonce when x-nonce header is empty', () => {
-    mockHeadersGet.mockImplementation((name: string) =>
-      name === 'x-nonce' ? '' : null
-    );
+    mockHeadersGet.mockImplementation((name: string) => (name === 'x-nonce' ? '' : null));
 
     const { container } = render(
       <RootLayout>
